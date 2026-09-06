@@ -37,6 +37,8 @@ export const SecretsSettingsModule: React.FC<SecretsSettingsModuleProps> = ({
   const [extractorKey, setExtractorKey] = useState(secretStore.moduleOpenAiKeys.audioExtractor);
   const [cookiesPath, setCookiesPath] = useState(secretStore.customTokens.firefoxProfile || '');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Sync state if secretStore is loaded asynchronously on mount
   useEffect(() => {
@@ -49,6 +51,10 @@ export const SecretsSettingsModule: React.FC<SecretsSettingsModuleProps> = ({
   }, [secretStore]);
 
   const handleSaveVault = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    setSavedSuccess(false);
+
     try {
       const updatedStore: SecretStore = {
         ...secretStore,
@@ -82,8 +88,11 @@ export const SecretsSettingsModule: React.FC<SecretsSettingsModuleProps> = ({
 
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 4000);
-    } catch (e) {
-      alert('Failed to encrypt and store secrets: ' + e);
+    } catch (e: any) {
+      console.error('Failed to encrypt and store secrets:', e);
+      setSaveError((e && e.message) ? e.message : String(e));
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -376,24 +385,34 @@ export const SecretsSettingsModule: React.FC<SecretsSettingsModuleProps> = ({
         </div>
 
         {/* Save to Vault Action */}
-        <div className="pt-2 flex items-center justify-between">
+        <div className="pt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <button
             onClick={handleSaveVault}
+            disabled={isSaving}
             id="btn-save-encrypted-vault"
             className={`flex items-center gap-2 px-5 py-2.5 rounded font-semibold text-xs transition-colors shadow-xs ${
+              isSaving ? 'opacity-70 cursor-not-allowed' : ''
+            } ${
               isDarkMode
                 ? 'bg-[#f3e79a] hover:bg-[#e8dc86] text-neutral-950'
                 : 'bg-[#ffd600] hover:bg-[#eab308] text-neutral-950'
             }`}
           >
             <Save className="w-4 h-4" />
-            <span>Encrypt & Save Secrets to Vault</span>
+            <span>{isSaving ? 'Encrypting & Saving...' : 'Encrypt & Save Secrets to Vault'}</span>
           </button>
 
           {savedSuccess && (
             <div className={`flex items-center gap-1.5 text-xs font-semibold ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
               <CheckCircle2 className="w-4 h-4" />
               <span>Vault updated & encrypted successfully!</span>
+            </div>
+          )}
+
+          {saveError && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-red-400 bg-red-950/30 border border-red-800/50 px-3 py-1.5 rounded">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{saveError}</span>
             </div>
           )}
         </div>

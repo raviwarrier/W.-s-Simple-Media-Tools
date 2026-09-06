@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import nodeCrypto from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import multer from 'multer';
@@ -178,7 +179,7 @@ app.post('/api/cost-tracker/reset', (req, res) => {
   }
 });
 
-// Encrypted Vault Persistence APIs
+// Encrypted Vault Persistence & Cryptographic Fallback APIs
 app.get('/api/vault', (req, res) => {
   try {
     if (fs.existsSync(VAULT_FILE)) {
@@ -203,6 +204,71 @@ app.post('/api/vault', (req, res) => {
     res.status(400).json({ error: 'Payload missing' });
   } catch (err: unknown) {
     res.status(500).json({ error: (err as Error)?.message || 'Failed to write vault' });
+  }
+});
+
+// Server-side fallback encryption (for browsers/contexts where crypto.subtle is disabled)
+app.post('/api/vault/encrypt', (req, res) => {
+  try {
+    const { store, password } = req.body;
+    if (!store || !password) {
+      res.status(400).json({ error: 'Store and password required' });
+      return;
+    }
+    const salt = nodeCrypto.randomBytes(16);
+    const iv = nodeCrypto.randomBytes(12);
+    const key = nodeCrypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
+    const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key, iv);
+    const plaintext = JSON.stringify(store);
+    const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    const combinedData = Buffer.concat([encrypted, tag]);
+
+    const payload = {
+      salt: salt.toString('base64'),
+      iv: iv.toString('base64'),
+      data: combinedData.toString('base64'),
+      updated: Date.now(),
+    };
+    const serialized = JSON.stringify(payload);
+    fs.writeFileSync(VAULT_FILE, serialized, 'utf-8');
+    res.json({ status: 'ok', encryptedPayload: serialized });
+  } catch (err: unknown) {
+    res.status(500).json({ error: (err as Error)?.message || 'Encryption failed' });
+  }
+});
+
+// Server-side fallback decryption (for browsers/contexts where crypto.subtle is disabled)
+app.post('/api/vault/decrypt', (req, res) => {
+  try {
+    const { payload, password } = req.body;
+    if (!payload || !password) {
+      res.status(400).json({ error: 'Payload and password required' });
+      return;
+    }
+    const parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    if (!parsed || !parsed.salt || !parsed.iv || !parsed.data) {
+      res.status(400).json({ error: 'Invalid envelope format' });
+      return;
+    }
+    const salt = Buffer.from(parsed.salt, 'base64');
+    const iv = Buffer.from(parsed.iv, 'base64');
+    const rawData = Buffer.from(parsed.data, 'base64');
+    if (rawData.length < 16) {
+      res.status(400).json({ error: 'Ciphertext buffer too short' });
+      return;
+    }
+    const ciphertext = rawData.subarray(0, rawData.length - 16);
+    const tag = rawData.subarray(rawData.length - 16);
+
+    const key = nodeCrypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
+    const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const store = JSON.parse(decrypted.toString('utf8'));
+    res.json({ status: 'ok', store });
+  } catch (err: unknown) {
+    res.status(400).json({ error: 'Decryption failed (password mismatch or format error)' });
   }
 });
 
