@@ -2,6 +2,8 @@
 
 A local-first web utility for media transcription and trimming.
 
+**Repository**: [https://github.com/raviwarrier/W.-s-Simple-Media-Tools](https://github.com/raviwarrier/W.-s-Simple-Media-Tools)
+
 ---
 
 ## Overview
@@ -84,8 +86,8 @@ brew install node ffmpeg yt-dlp
 #### Initial Installation
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
-cd <repository-directory>
+git clone https://github.com/raviwarrier/W.-s-Simple-Media-Tools.git
+cd W.-s-Simple-Media-Tools
 
 # 2. Install dependencies
 npm install
@@ -125,8 +127,8 @@ npm start
 npm install -g pm2
 
 # 2. Clone and install dependencies
-git clone <repository-url>
-cd <repository-directory>
+git clone https://github.com/raviwarrier/W.-s-Simple-Media-Tools.git
+cd W.-s-Simple-Media-Tools
 npm install
 
 # 3. Build the application
@@ -174,10 +176,14 @@ A multi-stage container build containing Node.js 20, FFmpeg, and yt-dlp is provi
 
 #### Initial Installation with Docker
 ```bash
-# 1. Build the Docker image
+# 1. Clone the repository
+git clone https://github.com/raviwarrier/W.-s-Simple-Media-Tools.git
+cd W.-s-Simple-Media-Tools
+
+# 2. Build the Docker image
 docker build -t w-simple-media-tools .
 
-# 2. Run the container with a persistent volume for data/ (cost logs & encrypted vault)
+# 3. Run the container with a persistent volume for data/ (cost logs & encrypted vault)
 docker run -d \
   --name w-simple-media-tools \
   -p 4261:4261 \
@@ -188,6 +194,11 @@ docker run -d \
 
 #### Initial Installation with Docker Compose
 ```bash
+# 1. Clone the repository
+git clone https://github.com/raviwarrier/W.-s-Simple-Media-Tools.git
+cd W.-s-Simple-Media-Tools
+
+# 2. Start container in background
 docker compose up -d --build
 ```
 The application will run on `http://localhost:4261`.
