@@ -1,0 +1,69 @@
+# Version Control
+.git
+.gitignore
+
+# Dependencies (installed fresh inside Docker build)
+node_modules
+
+# Build & Compilation artifacts
+dist
+build
+coverage
+
+# Environments & Secret Configuration Files
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.cert
+*.crt
+*.p12
+*.pfx
+secrets
+*secret*
+*secrets*
+*credential*
+*credentials*
+cookies.txt
+cookies*.txt
+*cookies*.txt
+
+# Data directory & Databases (persisted at runtime via Docker volume mount)
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.enc
+*.enc.json
+
+# Temporary processing directories, media, and logs
+temp
+tmp
+uploads
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+pm2.log
+*.tmp
+*.mp3
+*.mp4
+*.wav
+*.m4a
+*.m4b
+*.aac
+*.flac
+*.ogg
+*.webm
+*.mkv
+
+# System & Editor files
+.DS_Store
+Thumbs.db
+.vscode
+.idea

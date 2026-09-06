@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="100%" height="100%">
+  <defs>
+    <mask id="biteMaskDark">
+      <rect width="1000" height="1000" fill="white" />
+      <!-- Outer bite block -->
+      <polygon points="580,100 850,100 850,400 748,348 585,212" fill="black" />
+      <!-- 3 Teeth indentation bites -->
+      <circle cx="615" cy="245" r="34" fill="black" />
+      <circle cx="666" cy="296" r="34" fill="black" />
+      <circle cx="722" cy="346" r="34" fill="black" />
+    </mask>
+  </defs>
+
+  <g mask="url(#biteMaskDark)" fill="#ffffff">
+    <!-- Left note circle -->
+    <circle cx="290" cy="665" r="140" />
+    
+    <!-- Right note circle -->
+    <circle cx="625" cy="665" r="140" />
+    
+    <!-- Left stem -->
+    <rect x="365" y="295" width="65" height="370" />
+    
+    <!-- Right stem -->
+    <rect x="683" y="190" width="65" height="475" />
+    
+    <!-- Slanted Beam connecting stems -->
+    <polygon points="365,305 425,238 748,190 748,358 683,375 430,455 365,470" />
+    
+    <!-- Top-left smooth corner fillet -->
+    <path d="M 365 315 C 365 260 390 242 425 238 L 425 315 Z" />
+  </g>
+</svg>

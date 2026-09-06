@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: w-simple-media-tools
+    restart: unless-stopped
+    ports:
+      - "4261:4261"
+    environment:
+      - NODE_ENV=production
+      - PORT=4261
+    volumes:
+      - ./data:/app/data

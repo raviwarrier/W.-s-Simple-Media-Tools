@@ -1,0 +1,30 @@
+# Combined requirements.txt for Streamlit Unified Media Suite
+# Compatible with Python 3.10+ and modern PyTorch / Streamlit environments
+
+# Streamlit Core & UI
+streamlit>=1.35.0
+altair>=5.0.0
+
+# Media Download & Scraping
+yt-dlp>=2024.08.06
+pytube>=15.0.0
+
+# Audio & Video Processing
+openai-whisper>=20231117
+torch>=2.2.0
+torchaudio>=2.2.0
+numpy>=1.24.0,<2.0.0
+pydub>=0.25.1
+moviepy>=1.0.3
+ffmpeg-python>=0.2.0
+
+# AI & LLM Providers
+openai>=1.30.0
+
+# Security, Encryption & Environment
+cryptography>=42.0.5
+python-dotenv>=1.0.1
+
+# Optional Performance & Utilities
+requests>=2.31.0
+typing-extensions>=4.10.0

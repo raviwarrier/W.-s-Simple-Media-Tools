@@ -1,0 +1,644 @@
+import React, { useState } from 'react';
+import {
+  AudiobookTranscriberState,
+  SecretStore,
+  CostTrackerState,
+  ModuleId,
+} from '../../types';
+import {
+  BookOpen,
+  Download,
+  Copy,
+  Check,
+  Play,
+  FileAudio,
+  DollarSign,
+  Tag,
+  Clock,
+  CheckCircle2,
+  FileText,
+  Key,
+} from 'lucide-react';
+
+interface AudiobookTranscriberModuleProps {
+  state: AudiobookTranscriberState;
+  onChange: (updater: (prev: AudiobookTranscriberState) => AudiobookTranscriberState) => void;
+  secretStore: SecretStore;
+  costTracker: CostTrackerState;
+  onRecordCost: (
+    module: 'audiobook-transcriber',
+    operation: string,
+    durationSec: number,
+    inputTokens?: number,
+    outputTokens?: number,
+    details?: string
+  ) => void;
+  onRegisterBackgroundTask: (task: {
+    moduleId: 'audiobook-transcriber';
+    title: string;
+    estimatedTotalSec: number;
+    execute: (
+      onProgress: (p: number, msg: string) => void,
+      checkCancelled: () => boolean
+    ) => Promise<{
+      transcript: string;
+      filename: string;
+      dataUrl: string;
+      durationSec: number;
+    }>;
+  }) => void;
+  onNavigateToSettings?: (module: ModuleId) => void;
+  isDarkMode: boolean;
+}
+
+export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProps> = ({
+  state,
+  onChange,
+  secretStore,
+  costTracker,
+  onRecordCost,
+  onRegisterBackgroundTask,
+  onNavigateToSettings,
+  isDarkMode,
+}) => {
+  const [errorMsg, setErrorMsg] = useState('');
+  const [copied, setCopied] = useState(false);
+  const moduleTotal = costTracker.moduleTotals['audiobook-transcriber'] || { costUSD: 0, runs: 0 };
+
+  const activeKey =
+    secretStore.keyMode === 'unified'
+      ? secretStore.unifiedOpenAiKey?.trim()
+      : secretStore.moduleOpenAiKeys.audiobookTranscriber?.trim();
+
+  const handleCopyTranscript = () => {
+    if (!state.transcript) return;
+    navigator.clipboard.writeText(state.transcript);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Infer title & author from filename as fallback
+    const rawName = file.name.replace(/\.[^/.]+$/, '');
+    let book = rawName;
+    let author = 'Unknown Author';
+    if (rawName.includes('-')) {
+      const parts = rawName.split('-');
+      book = parts[0].trim();
+      author = parts[1].trim();
+    }
+
+    onChange((prev) => ({
+      ...prev,
+      uploadedFileName: file.name,
+      uploadedFileBlob: file,
+      detectedBook: book,
+      detectedAuthor: author,
+    }));
+  };
+
+  const handleTranscribeSnippet = () => {
+    setErrorMsg('');
+    if (!state.uploadedFileBlob && !state.uploadedFileName) {
+      setErrorMsg('Please upload an audiobook file (mp3, m4a, m4b, ogg).');
+      return;
+    }
+
+    if (!activeKey) {
+      setErrorMsg(
+        'OpenAI API key is not set. Audiobook Whisper transcription requires an OpenAI API key (sk-...). Please configure your key in Encrypted Secrets.'
+      );
+      return;
+    }
+
+    const startSeconds = state.hours * 3600 + state.minutes * 60 + state.seconds;
+    const startLabel = `${state.hours.toString().padStart(2, '0')}h${state.minutes
+      .toString()
+      .padStart(2, '0')}m${state.seconds.toString().padStart(2, '0')}s`;
+
+    const cleanBook = (state.detectedBook || 'Audiobook').replace(/[/\\:*?"<>|]/g, '-');
+    const cleanAuthor = (state.detectedAuthor || 'Author').replace(/[/\\:*?"<>|]/g, '-');
+    const targetFilename = `${cleanBook} - ${cleanAuthor} - ${startLabel}-${state.duration}s.txt`;
+
+    // Revoke previous downloadReady URL for this module
+    if (state.downloadReady?.url) {
+      URL.revokeObjectURL(state.downloadReady.url);
+    }
+
+    onChange((prev) => ({
+      ...prev,
+      downloadReady: null,
+      transcript: '',
+      isProcessing: true,
+    }));
+
+    onRegisterBackgroundTask({
+      moduleId: 'audiobook-transcriber',
+      title: `Audiobook: ${cleanBook} (${startLabel})`,
+      estimatedTotalSec: Math.min(30, Math.max(5, state.duration * 0.3)),
+      execute: async (onProgress, checkCancelled) => {
+        try {
+          onProgress(15, 'Extracting audio snippet with FFmpeg pcm_s16le 16kHz...');
+          if (checkCancelled()) throw new Error('Cancelled');
+
+          const formData = new FormData();
+          if (state.uploadedFileBlob) {
+            formData.append('file', state.uploadedFileBlob);
+          }
+          formData.append('hours', state.hours.toString());
+          formData.append('minutes', state.minutes.toString());
+          formData.append('seconds', state.seconds.toString());
+          formData.append('duration', state.duration.toString());
+          formData.append('modelSize', state.modelSize);
+          if (activeKey) {
+            formData.append('openaiApiKey', activeKey);
+          }
+
+          onProgress(45, 'Querying FFprobe metadata tags and sending snippet to AI transcriber...');
+          if (checkCancelled()) throw new Error('Cancelled');
+
+          const response = await fetch('/api/audiobook/process', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Audiobook transcription failed' }));
+            throw new Error(err.error || 'Server audiobook transcription failed');
+          }
+
+          onProgress(85, 'Finalizing snippet transcription and formatting...');
+          if (checkCancelled()) throw new Error('Cancelled');
+
+          const resData = (await response.json()) as {
+            book: string;
+            author: string;
+            timestamp: string;
+            duration: number;
+            transcript: string;
+            filename: string;
+            audioDataUrl: string;
+          };
+
+          const finalBook = resData.book || cleanBook;
+          const finalAuthor = resData.author || cleanAuthor;
+          const finalFilename = resData.filename || targetFilename;
+
+          const transcriptContent =
+            `Book: ${finalBook}\nAuthor: ${finalAuthor}\nTimestamp: ${startLabel} (+${state.duration}s)\n` +
+            `Whisper Model: ${state.modelSize}\n` +
+            `\n--- TRANSCRIPT ---\n` +
+            resData.transcript;
+
+          const blob = new Blob([transcriptContent], { type: 'text/plain;charset=utf-8' });
+          const dataUrl = URL.createObjectURL(blob);
+
+          onRecordCost(
+            'audiobook-transcriber',
+            `Audiobook Snippet (${state.duration}s)`,
+            state.duration,
+            0,
+            0,
+            `${finalBook} at ${startLabel}`
+          );
+
+          onProgress(100, 'Done. Transcript ready for download.');
+
+          onChange((prev) => ({
+            ...prev,
+            detectedBook: finalBook,
+            detectedAuthor: finalAuthor,
+            transcript: transcriptContent,
+            downloadReady: {
+              filename: finalFilename,
+              url: dataUrl,
+              size: blob.size,
+            },
+            isProcessing: false,
+          }));
+
+          return {
+            transcript: transcriptContent,
+            filename: finalFilename,
+            dataUrl,
+            durationSec: state.duration,
+          };
+        } catch (err: unknown) {
+          onChange((prev) => ({ ...prev, isProcessing: false }));
+          throw err;
+        }
+      },
+    });
+  };
+
+  return (
+    <div id="audiobook-transcriber-module" className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header Banner */}
+      <div
+        className={`p-4 rounded border flex flex-col md:flex-row items-start md:items-center justify-between gap-3 transition-colors ${
+          isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-white border-[#e0e0e0]'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-9 h-9 rounded flex items-center justify-center shrink-0 ${
+              isDarkMode ? 'bg-[#262626] text-[#f3e79a]' : 'bg-[#f4f4f5] text-[#854d0e]'
+            }`}
+          >
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold tracking-tight">Audiobook Snippet Transcriber</h3>
+            <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+              Extract timestamped audiobook chapters, extract metadata tags via FFprobe, and transcribe
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5 text-xs font-mono">
+          <button
+            type="button"
+            id="btn-audiobook-key-status"
+            onClick={() => onNavigateToSettings?.('secrets-settings')}
+            title={
+              activeKey
+                ? 'OpenAI Whisper API key is set. Click to manage in Encrypted Secrets.'
+                : 'API key is not set. Click to configure your key in Encrypted Secrets.'
+            }
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono transition-all cursor-pointer ${
+              activeKey
+                ? isDarkMode
+                  ? 'bg-[#222222] hover:bg-[#2a2a2a] border-emerald-900/60 text-emerald-400'
+                  : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-900 font-medium'
+                : isDarkMode
+                ? 'bg-[#222222] hover:bg-[#2a2a2a] border-amber-800/60 text-amber-400'
+                : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900 font-medium'
+            }`}
+          >
+            <Key
+              className={`w-3.5 h-3.5 ${
+                activeKey
+                  ? 'text-emerald-500'
+                  : 'text-amber-500'
+              }`}
+            />
+            <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>Key:</span>
+            <span className="font-semibold">
+              {activeKey ? 'set' : 'not set'}
+            </span>
+          </button>
+
+          <div
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono ${
+              isDarkMode
+                ? 'bg-[#222222] border-[#333333] text-[#f3e79a]'
+                : 'bg-[#f8f8f8] border-[#e0e0e0] text-[#854d0e] font-semibold'
+            }`}
+          >
+            <DollarSign className="w-3.5 h-3.5" />
+            <span>${moduleTotal.costUSD.toFixed(4)}</span>
+            <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>({moduleTotal.runs})</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Inputs */}
+        <div
+          className={`lg:col-span-5 p-5 rounded border space-y-4 ${
+            isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-white border-[#e0e0e0]'
+          }`}
+        >
+          <div className="border-b border-inherit pb-2">
+            <h4 className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+              Audiobook Upload & Snippet Range
+            </h4>
+          </div>
+
+          {/* Upload File */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium">Audiobook File (mp3, m4a, m4b, ogg):</label>
+            <div
+              className={`border border-dashed rounded p-4 text-center cursor-pointer transition-colors ${
+                isDarkMode
+                  ? 'border-[#383838] hover:border-[#f3e79a] bg-[#121212]'
+                  : 'border-[#d4d4d8] hover:border-[#ffd600] bg-[#fafafa]'
+              }`}
+              onClick={() => document.getElementById('audiobook-upload-input')?.click()}
+            >
+              <input
+                id="audiobook-upload-input"
+                type="file"
+                accept=".mp3,.m4a,.m4b,.ogg,audio/*"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+              <FileAudio className={`w-6 h-6 mx-auto mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+              <p className="text-xs font-medium">
+                {state.uploadedFileName ? (
+                  <span className={isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}>
+                    {state.uploadedFileName}
+                  </span>
+                ) : (
+                  'Click to upload audiobook file'
+                )}
+              </p>
+              <p className={`text-xs mt-0.5 font-mono ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+                Supports M4B, MP3, M4A, OGG
+              </p>
+            </div>
+          </div>
+
+          {/* Metadata Fields (editable) */}
+          <div className="grid grid-cols-2 gap-3 pt-0.5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium flex items-center gap-1">
+                <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                <span>Book Title:</span>
+              </label>
+              <input
+                type="text"
+                value={state.detectedBook}
+                onChange={(e) =>
+                  onChange((prev) => ({ ...prev, detectedBook: e.target.value }))
+                }
+                placeholder="Book Title"
+                className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium flex items-center gap-1">
+                <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                <span>Author / Artist:</span>
+              </label>
+              <input
+                type="text"
+                value={state.detectedAuthor}
+                onChange={(e) =>
+                  onChange((prev) => ({ ...prev, detectedAuthor: e.target.value }))
+                }
+                placeholder="Author Name"
+                className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* Snippet Range Columns (Hours, Minutes, Seconds) */}
+          <div className="space-y-1.5 pt-1">
+            <label className="text-xs font-medium flex items-center gap-1">
+              <Clock className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+              <span>Start Time:</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className={`text-xs font-mono block mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>Hours</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={state.hours}
+                  onChange={(e) =>
+                    onChange((prev) => ({ ...prev, hours: Math.max(0, parseInt(e.target.value, 10) || 0) }))
+                  }
+                  className={`w-full px-3 py-2 text-xs rounded border focus:outline-none font-mono ${
+                    isDarkMode
+                      ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                      : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-mono block mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>Minutes</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={state.minutes}
+                  onChange={(e) =>
+                    onChange((prev) => ({
+                      ...prev,
+                      minutes: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
+                    }))
+                  }
+                  className={`w-full px-3 py-2 text-xs rounded border focus:outline-none font-mono ${
+                    isDarkMode
+                      ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                      : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                  }`}
+                />
+              </div>
+              <div>
+                <label className={`text-xs font-mono block mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>Seconds</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={state.seconds}
+                  onChange={(e) =>
+                    onChange((prev) => ({
+                      ...prev,
+                      seconds: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
+                    }))
+                  }
+                  className={`w-full px-3 py-2 text-xs rounded border focus:outline-none font-mono ${
+                    isDarkMode
+                      ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                      : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                  }`}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Duration & Model */}
+          <div className="grid grid-cols-2 gap-3 pt-0.5">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Duration (seconds):</label>
+              <input
+                type="number"
+                min="5"
+                max="600"
+                value={state.duration}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    duration: Math.max(5, parseInt(e.target.value, 10) || 60),
+                  }))
+                }
+                className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Whisper Model:</label>
+              <select
+                value={state.modelSize}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    modelSize: e.target.value as AudiobookTranscriberState['modelSize'],
+                  }))
+                }
+                className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              >
+                <option value="tiny">tiny</option>
+                <option value="base">base (standard)</option>
+                <option value="small">small</option>
+              </select>
+            </div>
+          </div>
+
+          {errorMsg && (
+            <div className="p-3 text-xs rounded border border-rose-800 bg-rose-950/40 text-rose-200">
+              <span className="block font-medium">{errorMsg}</span>
+              {(errorMsg.toLowerCase().includes('key') || errorMsg.includes('Secrets')) && onNavigateToSettings && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToSettings('secrets-settings')}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded font-mono font-medium text-xs border border-rose-400 bg-rose-200/80 hover:bg-rose-200 dark:bg-rose-900/60 dark:hover:bg-rose-900 dark:border-rose-700 text-rose-950 dark:text-rose-100 cursor-pointer transition-colors"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>Open Encrypted Secrets & Enter API Key →</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Action */}
+          <button
+            onClick={handleTranscribeSnippet}
+            disabled={state.isProcessing}
+            id="btn-transcribe-audiobook"
+            className={`w-full py-2.5 px-4 rounded font-semibold text-xs transition-colors flex items-center justify-center gap-2 shadow-xs disabled:opacity-50 ${
+              isDarkMode
+                ? 'bg-[#f3e79a] hover:bg-[#e8dc86] text-neutral-950'
+                : 'bg-[#ffd600] hover:bg-[#eab308] text-neutral-950'
+            }`}
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>{state.isProcessing ? 'Transcribing in Background…' : 'Transcribe Snippet'}</span>
+          </button>
+        </div>
+
+        {/* Right Output */}
+        <div
+          className={`lg:col-span-7 p-6 rounded border flex flex-col space-y-4 ${
+            isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-white border-[#e0e0e0]'
+          }`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-inherit pb-3">
+            <div>
+              <h4 className={`text-sm font-semibold uppercase tracking-wider ${isDarkMode ? 'text-[#e5e5e5]' : 'text-[#222222]'}`}>
+                Audiobook Transcript Output
+              </h4>
+              <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+                Standard format: "Book Title - Author - starttime-duration.txt"
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {state.transcript && (
+                <button
+                  type="button"
+                  onClick={handleCopyTranscript}
+                  id="btn-copy-audiobook-transcript"
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded font-medium text-sm border transition-colors ${
+                    copied
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                      : isDarkMode
+                      ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                      : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                  }`}
+                >
+                  {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  <span>{copied ? 'Copied!' : 'Copy'}</span>
+                </button>
+              )}
+
+              {state.downloadReady && (
+                <a
+                  href={state.downloadReady.url}
+                  download={state.downloadReady.filename}
+                  id="btn-download-audiobook-transcript"
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded font-semibold text-sm shadow-xs transition-colors ${
+                    isDarkMode
+                      ? 'bg-[#f3e79a] hover:bg-[#e8dc86] text-neutral-950'
+                      : 'bg-[#ffd600] hover:bg-[#eab308] text-neutral-950'
+                  }`}
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download .txt</span>
+                </a>
+              )}
+            </div>
+          </div>
+
+          {state.transcript ? (
+            <div className="space-y-3 flex-1 flex flex-col">
+              <div
+                className={`p-3.5 rounded border flex items-center justify-between ${
+                  isDarkMode ? 'border-[#333333] bg-[#121212]' : 'border-[#e0e0e0] bg-[#fafafa]'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className={`w-5 h-5 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                  <div>
+                    <p className={`text-sm font-semibold font-mono ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
+                      {state.downloadReady?.filename}
+                    </p>
+                    <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+                      Snippet extracted & transcribed • Zero-retention memory cache
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 space-y-2">
+                <label className="text-sm font-medium flex items-center gap-1.5">
+                  <FileText className={`w-4 h-4 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                  <span>Transcription Output:</span>
+                </label>
+                <textarea
+                  readOnly
+                  rows={14}
+                  value={state.transcript}
+                  className={`w-full p-3.5 font-mono text-sm leading-relaxed rounded border resize-none focus:outline-none ${
+                    isDarkMode
+                      ? 'bg-[#121212] border-[#2c2c2c] text-neutral-200 focus:border-[#f3e79a]'
+                      : 'bg-[#fafafa] border-[#e0e0e0] text-neutral-800 focus:border-[#ffd600]'
+                  }`}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className={`h-64 flex flex-col items-center justify-center text-center text-sm ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+              <BookOpen className="w-10 h-10 mb-2.5 opacity-30" />
+              <p className="font-semibold text-base">No audiobook snippet transcribed yet</p>
+              <p className="text-xs mt-1 max-w-sm">
+                Upload an audiobook, select a starting hour/minute/second, and click 'Transcribe Snippet'.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
