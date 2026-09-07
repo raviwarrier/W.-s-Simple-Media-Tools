@@ -7,11 +7,87 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import multer from 'multer';
 import dotenv from 'dotenv';
+import ffmpegStatic from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
 import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
 
 const pExecFile = promisify(execFile);
+
+// Dynamic, cross-platform binary resolution for FFmpeg and ffprobe
+export function getFfmpegPath(): string {
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
+  }
+  const staticPath = (typeof ffmpegStatic === 'string' ? ffmpegStatic : (ffmpegStatic as any)?.default || (ffmpegStatic as any)?.path) as string | undefined;
+  if (staticPath && fs.existsSync(staticPath)) {
+    try {
+      fs.chmodSync(staticPath, 0o755);
+    } catch {}
+    return staticPath;
+  }
+  const candidates = ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg'];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'ffmpeg';
+}
+
+export function getFfprobePath(): string {
+  if (process.env.FFPROBE_PATH && fs.existsSync(process.env.FFPROBE_PATH)) {
+    return process.env.FFPROBE_PATH;
+  }
+  const staticPath = (typeof ffprobeStatic === 'string' ? ffprobeStatic : (ffprobeStatic as any)?.path || (ffprobeStatic as any)?.default?.path) as string | undefined;
+  if (staticPath && fs.existsSync(staticPath)) {
+    try {
+      fs.chmodSync(staticPath, 0o755);
+    } catch {}
+    return staticPath;
+  }
+  const candidates = ['/usr/bin/ffprobe', '/usr/local/bin/ffprobe', '/opt/homebrew/bin/ffprobe'];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return 'ffprobe';
+}
+
+export async function runFfmpeg(args: string[], options?: any): Promise<{ stdout: string; stderr: string }> {
+  const binary = getFfmpegPath();
+  try {
+    const res: any = await pExecFile(binary, args, { encoding: 'utf8', ...options });
+    return {
+      stdout: typeof res.stdout === 'string' ? res.stdout : String(res.stdout || ''),
+      stderr: typeof res.stderr === 'string' ? res.stderr : String(res.stderr || ''),
+    };
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      throw new Error(
+        `FFmpeg binary not found (attempted: "${binary}"). Ensure ffmpeg is installed or ffmpeg-static is bundled.`
+      );
+    }
+    throw err;
+  }
+}
+
+export async function runFfprobe(args: string[], options?: any): Promise<{ stdout: string; stderr: string }> {
+  const binary = getFfprobePath();
+  try {
+    const res: any = await pExecFile(binary, args, { encoding: 'utf8', ...options });
+    return {
+      stdout: typeof res.stdout === 'string' ? res.stdout : String(res.stdout || ''),
+      stderr: typeof res.stderr === 'string' ? res.stderr : String(res.stderr || ''),
+    };
+  } catch (err: any) {
+    if (err && err.code === 'ENOENT') {
+      throw new Error(
+        `FFprobe binary not found (attempted: "${binary}"). Ensure ffprobe is installed or ffprobe-static is bundled.`
+      );
+    }
+    throw err;
+  }
+}
+
 const app = express();
 const DEFAULT_PORT = 4261;
 const PORT = parseInt(process.env.PORT || '4261', 10);
@@ -63,8 +139,29 @@ function formatSecondsToTimestamp(sec: number): string {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-// Helper to download URL using yt-dlp
+// Helper to download URL using direct fetch for raw media files or yt-dlp for streaming sites
 async function downloadUrlEphemeral(url: string, outputDir: string, extractAudioOnly: boolean = false): Promise<string> {
+  // 1. Check if the URL points directly to an audio/video file and download via native fetch
+  try {
+    const parsed = new URL(url);
+    const pathname = parsed.pathname.toLowerCase();
+    const directExts = ['.mp3', '.mp4', '.wav', '.m4a', '.aac', '.mov', '.mkv', '.webm', '.ogg', '.flac'];
+    const matchedExt = directExts.find((ext) => pathname.endsWith(ext));
+
+    if (matchedExt) {
+      const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (W-Simple-Media-Tools)' } });
+      if (resp.ok) {
+        const targetPath = path.join(outputDir, `direct_source${matchedExt}`);
+        const arrayBuffer = await resp.arrayBuffer();
+        fs.writeFileSync(targetPath, Buffer.from(arrayBuffer));
+        return targetPath;
+      }
+    }
+  } catch (directErr) {
+    console.warn('Direct media download attempted and skipped, falling back to yt-dlp:', directErr);
+  }
+
+  // 2. Otherwise use yt-dlp for web streaming extraction
   const outTemplate = path.join(outputDir, 'source.%(ext)s');
   const args = ['--no-warnings', '--no-check-certificates', '-o', outTemplate];
 
@@ -79,8 +176,13 @@ async function downloadUrlEphemeral(url: string, outputDir: string, extractAudio
     await pExecFile('yt-dlp', args, { timeout: 180000 });
   } catch (err: unknown) {
     const errText = (err as Error)?.message || '';
+    if ((err as any)?.code === 'ENOENT' || errText.includes('ENOENT')) {
+      throw new Error(
+        'yt-dlp binary is not installed on this system for streaming site extraction. Please upload your video/audio file directly, or use a direct media file URL (ending in .mp4, .mp3, etc.).'
+      );
+    }
     if (errText.includes('Sign in') || errText.includes('bot') || errText.includes('403') || errText.includes('HTTP Error 403')) {
-      throw new Error('Streaming source blocked automated extraction (bot check / 403). Please upload your video/audio file directly to transcribe.');
+      throw new Error('Streaming source blocked automated extraction (bot check / 403). Please upload your video/audio file directly.');
     }
     throw new Error(`Failed to download stream (${errText.slice(0, 140)}...). Please upload the media file directly.`);
   }
@@ -95,7 +197,7 @@ async function downloadUrlEphemeral(url: string, outputDir: string, extractAudio
 // Extract audio duration via ffprobe
 async function getMediaDuration(mediaPath: string): Promise<number> {
   try {
-    const { stdout } = await pExecFile('ffprobe', [
+    const { stdout } = await runFfprobe([
       '-v', 'error',
       '-show_entries', 'format=duration',
       '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -297,7 +399,7 @@ app.post('/api/video-transcriber/process', upload.single('file'), async (req, re
 
     // Extract mono 16kHz WAV
     const wavPath = path.join(tempDir, 'audio_16k.wav');
-    await pExecFile('ffmpeg', [
+    await runFfmpeg([
       '-i', inputPath,
       '-vn',
       '-acodec', 'pcm_s16le',
@@ -462,7 +564,7 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
     const outputPath = path.join(tempDir, outputFilename);
 
     if (isAudio) {
-      await pExecFile('ffmpeg', [
+      await runFfmpeg([
         '-ss', startSec.toString(),
         '-i', inputPath,
         '-t', duration.toString(),
@@ -477,7 +579,7 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
       let hasVideoStream = true;
       let hasAudioStream = true;
       try {
-        const { stdout } = await pExecFile('ffprobe', [
+        const { stdout } = await runFfprobe([
           '-v', 'error',
           '-show_entries', 'stream=codec_type',
           '-of', 'json',
@@ -493,7 +595,7 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
       if (!hasVideoStream) {
         // Pure audio file provided, but user requested video clip (.mp4)
         // Synthesize a solid background video with the audio stream
-        await pExecFile('ffmpeg', [
+        await runFfmpeg([
           '-ss', startSec.toString(),
           '-i', inputPath,
           '-f', 'lavfi',
@@ -525,7 +627,7 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
           clipArgs.push('-an');
         }
         clipArgs.push('-movflags', '+faststart', outputPath, '-y');
-        await pExecFile('ffmpeg', clipArgs);
+        await runFfmpeg(clipArgs);
       }
     }
 
@@ -584,7 +686,7 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
 
     // Extract snippet
     const snippetPath = path.join(tempDir, 'snippet.wav');
-    await pExecFile('ffmpeg', [
+    await runFfmpeg([
       '-ss', startSec.toString(),
       '-i', inputPath,
       '-t', durSec.toString(),
@@ -599,7 +701,7 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
     let book = path.parse(originalName).name;
     let author = 'Unknown Author';
     try {
-      const { stdout } = await pExecFile('ffprobe', [
+      const { stdout } = await runFfprobe([
         '-v', 'quiet',
         '-print_format', 'json',
         '-show_format',
@@ -663,7 +765,7 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
 
     // Create playable audio mp3
     const snippetMp3 = path.join(tempDir, 'snippet.mp3');
-    await pExecFile('ffmpeg', [
+    await runFfmpeg([
       '-i', snippetPath,
       '-c:a', 'libmp3lame',
       '-b:a', '128k',
@@ -721,7 +823,7 @@ app.post('/api/audio-extractor/process', upload.single('file'), async (req, res)
     const outputFilename = `${baseName}_${Math.round(start)}s_${Math.round(dur)}s.mp3`;
     const outputPath = path.join(tempDir, outputFilename);
 
-    await pExecFile('ffmpeg', [
+    await runFfmpeg([
       '-ss', start.toString(),
       '-i', inputPath,
       '-t', dur.toString(),
@@ -750,9 +852,31 @@ app.post('/api/audio-extractor/process', upload.single('file'), async (req, res)
   }
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+// Health check & environment diagnostics
+app.get('/api/health', async (req, res) => {
+  const ffmpegPath = getFfmpegPath();
+  const ffprobePath = getFfprobePath();
+  let ffmpegReady = false;
+  let ffmpegVersion = '';
+  try {
+    const { stdout } = await runFfmpeg(['-version']);
+    ffmpegReady = true;
+    ffmpegVersion = stdout.split('\n')[0];
+  } catch (e: any) {
+    ffmpegVersion = e?.message || 'FFmpeg unavailable';
+  }
+
+  res.json({
+    status: 'ok',
+    ffmpeg: {
+      ready: ffmpegReady,
+      path: ffmpegPath,
+      version: ffmpegVersion,
+    },
+    ffprobe: {
+      path: ffprobePath,
+    },
+  });
 });
 
 // Vite middleware / static files

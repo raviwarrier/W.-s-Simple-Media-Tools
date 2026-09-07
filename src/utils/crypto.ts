@@ -1,5 +1,4 @@
-// Client-side AES encryption utility with Web Crypto API and non-secure context fallbacks
-import CryptoJS from 'crypto-js';
+// Client-side AES encryption utility with Web Crypto API and secure server-assisted fallbacks
 import { SecretStore } from '../types';
 
 const SALT_STORAGE_KEY = 'vault_salt_v1';
@@ -86,19 +85,8 @@ export async function deriveKeyFromPassword(password: string, salt: Uint8Array):
   );
 }
 
-function decryptWithCryptoJS(ciphertext: string, password: string): SecretStore | null {
-  try {
-    const bytes = CryptoJS.AES.decrypt(ciphertext, password);
-    const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
-    if (!decryptedStr) return null;
-    return JSON.parse(decryptedStr) as SecretStore;
-  } catch {
-    return null;
-  }
-}
-
 export async function encryptVault(store: SecretStore, password: string): Promise<string> {
-  // 1. If Web Crypto API is available (secure context: HTTPS or localhost), use standard AES-GCM
+  // 1. If Web Crypto API is available (secure context: HTTPS or localhost), use native standard AES-GCM
   if (isWebCryptoAvailable()) {
     try {
       const salt = getRandomBytes(16);
@@ -138,50 +126,32 @@ export async function encryptVault(store: SecretStore, password: string): Promis
         return serialized;
       }
     } catch (webCryptoErr) {
-      console.warn('Web Crypto encryption failed, attempting fallback:', webCryptoErr);
+      console.warn('Web Crypto encryption failed, falling back to server encryption:', webCryptoErr);
     }
   }
 
-  // 2. Server-assisted encryption: if browser is on HTTP / non-secure context, ask local Express server
-  try {
-    const res = await fetch('/api/vault/encrypt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ store, password }),
-    });
-    if (res.ok) {
-      const json = await res.json();
-      if (json.encryptedPayload && typeof json.encryptedPayload === 'string') {
-        try {
-          localStorage.setItem(ENCRYPTED_VAULT_KEY, json.encryptedPayload);
-          localStorage.setItem(VAULT_META_KEY, JSON.stringify({ isConfigured: true, lastUpdated: Date.now() }));
-        } catch {}
-        return json.encryptedPayload;
-      }
+  // 2. Server-assisted encryption: when browser is on non-secure HTTP (e.g. LAN IP), use local server's native crypto
+  const res = await fetch('/api/vault/encrypt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ store, password }),
+  });
+  if (res.ok) {
+    const json = await res.json();
+    if (json.encryptedPayload && typeof json.encryptedPayload === 'string') {
+      try {
+        localStorage.setItem(ENCRYPTED_VAULT_KEY, json.encryptedPayload);
+        localStorage.setItem(VAULT_META_KEY, JSON.stringify({ isConfigured: true, lastUpdated: Date.now() }));
+      } catch {}
+      return json.encryptedPayload;
     }
-  } catch (serverErr) {
-    console.warn('Server vault encrypt unavailable, using CryptoJS local fallback:', serverErr);
   }
 
-  // 3. Client-side pure JS fallback with CryptoJS (100% offline & independent of browser secure-context rules)
-  const plaintext = JSON.stringify(store);
-  const encrypted = CryptoJS.AES.encrypt(plaintext, password).toString();
-  const envelope = {
-    format: 'cryptojs-v1',
-    data: encrypted,
-    updated: Date.now(),
-  };
-  const serialized = JSON.stringify(envelope);
-  try {
-    localStorage.setItem(ENCRYPTED_VAULT_KEY, serialized);
-    localStorage.setItem(VAULT_META_KEY, JSON.stringify({ isConfigured: true, lastUpdated: Date.now() }));
-  } catch {}
-
-  return serialized;
+  throw new Error('Encryption failed. Unable to encrypt secrets vault in this environment.');
 }
 
 /**
- * Safely attempts to decrypt a serialized vault envelope across WebCrypto, CryptoJS, or server-side fallback.
+ * Safely attempts to decrypt a serialized vault envelope across WebCrypto or server-side fallback.
  */
 export async function tryDecryptPayload(
   rawPayload: string | null,
@@ -193,18 +163,12 @@ export async function tryDecryptPayload(
     try {
       parsed = JSON.parse(rawPayload);
     } catch {
-      // Raw string format: attempt CryptoJS decryption directly
-      return decryptWithCryptoJS(rawPayload, password);
+      return null;
     }
 
     if (!parsed) return null;
 
-    // Format A: CryptoJS envelope
-    if (parsed.format === 'cryptojs-v1' && parsed.data) {
-      return decryptWithCryptoJS(parsed.data, password);
-    }
-
-    // Format B: Standard AES-GCM envelope
+    // Standard AES-GCM envelope
     if (parsed.data && parsed.iv) {
       let salt: Uint8Array | null = null;
       if (parsed.salt) {
@@ -241,7 +205,7 @@ export async function tryDecryptPayload(
         }
       }
 
-      // If Web Crypto is unavailable (insecure HTTP context / Firefox LAN IP) or failed, try server endpoint
+      // If Web Crypto is unavailable (insecure HTTP context / LAN IP) or failed, use server endpoint
       try {
         const res = await fetch('/api/vault/decrypt', {
           method: 'POST',
@@ -255,12 +219,6 @@ export async function tryDecryptPayload(
           }
         }
       } catch {}
-    }
-
-    // Format C: Try CryptoJS on parsed.data if available
-    if (parsed.data && typeof parsed.data === 'string') {
-      const fallbackStore = decryptWithCryptoJS(parsed.data, password);
-      if (fallbackStore) return fallbackStore;
     }
 
     return null;

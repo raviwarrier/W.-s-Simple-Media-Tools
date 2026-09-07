@@ -25,8 +25,19 @@ import { AudiobookTranscriberModule } from './components/modules/AudiobookTransc
 import { SecretsSettingsModule } from './components/modules/SecretsSettingsModule';
 import { CostAnalyticsModule } from './components/modules/CostAnalyticsModule';
 import { CodeEnvironmentModule } from './components/modules/CodeEnvironmentModule';
+import { ToastProvider, useToast } from './context/ToastContext';
+import { ToastContainer } from './components/Toast';
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
+  );
+}
+
+function AppContent() {
+  const { showToast } = useToast();
   // Navigation & Theme (Dark mode is default as explicitly requested)
   const [currentModule, setCurrentModule] = useState<ModuleId>('video-transcriber');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
@@ -320,21 +331,39 @@ export default function App() {
             : t
         )
       );
+
+      showToast({
+        type: 'success',
+        title: 'Task Completed',
+        message: `${taskDef.title} finished successfully. Ready for download.`,
+        duration: 8000,
+      });
     } catch (err: unknown) {
       const isCancelled = cancelledTasksRef.current.has(taskId);
+      const errorMsg = isCancelled
+        ? 'Stopped by user.'
+        : (err as Error)?.message || 'Execution error encountered.';
+
       setBackgroundTasks((prev) =>
         prev.map((t) =>
           t.id === taskId
             ? {
                 ...t,
                 status: isCancelled ? 'cancelled' : 'failed',
-                message: isCancelled
-                  ? 'Stopped by user.'
-                  : (err as Error)?.message || 'Execution error encountered.',
+                message: errorMsg,
               }
             : t
         )
       );
+
+      if (!isCancelled) {
+        showToast({
+          type: 'error',
+          title: `Task Failed: ${taskDef.title}`,
+          message: errorMsg,
+          duration: 15000, // 15 seconds so user has time to copy the text
+        });
+      }
     }
   };
 
@@ -343,6 +372,12 @@ export default function App() {
     setBackgroundTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: 'cancelled', message: 'Cancelled.' } : t))
     );
+    showToast({
+      type: 'info',
+      title: 'Task Cancelled',
+      message: 'Background task was stopped by user.',
+      duration: 8000,
+    });
   };
 
   const handleClearCompletedTasks = () => {
@@ -506,6 +541,9 @@ export default function App() {
         onClearCompletedTasks={handleClearCompletedTasks}
         isDarkMode={isDarkMode}
       />
+
+      {/* Timed 15-Second Toast Notification Container */}
+      <ToastContainer isDarkMode={isDarkMode} />
     </div>
   );
 }

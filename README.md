@@ -61,7 +61,7 @@ Transcribing an audiobook or lengthy recording entails uploading large files and
 ## System Requirements
 
 - **Node.js**: Version 18.0.0 or higher (Node 20+ LTS recommended)
-- **FFmpeg & ffprobe**: Required for media stream probing, chunking, and trimming
+- **FFmpeg & ffprobe**: Self-contained static binaries (`ffmpeg-static` and `ffprobe-static`) are bundled automatically as npm dependencies. If you have a system-level installation or hardware-accelerated build, you can point to it via `FFMPEG_PATH` and `FFPROBE_PATH` environment variables.
 - **yt-dlp**: Required for fetching media from supported external URLs (optional if only uploading local files)
 
 On Debian/Ubuntu systems:
