@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useToast } from '../../context/ToastContext';
 import {
   VideoTranscriberState,
   SecretStore,
@@ -54,6 +55,45 @@ interface VideoTranscriberModuleProps {
   isDarkMode: boolean;
 }
 
+// Helper to transform timestamped lines to flowing passages/paragraphs without timestamps
+export function formatTranscript(rawText: string, omitTimestamps: boolean): string {
+  if (!rawText) return '';
+  if (!omitTimestamps) return rawText;
+
+  const headerSplit = rawText.split('\n\n');
+  let header = '';
+  let body = rawText;
+  if (headerSplit.length > 1 && headerSplit[0].includes('Title:')) {
+    header = headerSplit[0].replace(/Format: .*/, 'Format: Passages / Paragraphs (No Timestamps)').replace(/Chunk Duration: .*/, 'Format: Passages / Paragraphs (No Timestamps)') + '\n\n';
+    body = headerSplit.slice(1).join('\n\n');
+  }
+
+  const lines = body.split('\n');
+  const sentences = lines
+    .map((line) => line.replace(/^\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, '').trim())
+    .filter(Boolean);
+
+  if (sentences.length === 0) return rawText;
+
+  const paragraphs: string[] = [];
+  let currentGroup: string[] = [];
+  for (const s of sentences) {
+    currentGroup.push(s);
+    if (
+      currentGroup.length >= 3 &&
+      (s.endsWith('.') || s.endsWith('!') || s.endsWith('?') || currentGroup.join(' ').length > 240)
+    ) {
+      paragraphs.push(currentGroup.join(' '));
+      currentGroup = [];
+    }
+  }
+  if (currentGroup.length > 0) {
+    paragraphs.push(currentGroup.join(' '));
+  }
+
+  return header + (paragraphs.length > 0 ? paragraphs.join('\n\n') : sentences.join(' '));
+}
+
 export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
   state,
   onChange,
@@ -64,9 +104,11 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
   onNavigateToSettings,
   isDarkMode,
 }) => {
+  const { showToast } = useToast();
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [localUrl, setLocalUrl] = useState(state.videoUrl);
   const [copied, setCopied] = useState(false);
+  const [copiedSummary, setCopiedSummary] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeKey =
@@ -80,7 +122,26 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
     if (!state.finalTranscription) return;
     navigator.clipboard.writeText(state.finalTranscription);
     setCopied(true);
+    showToast({
+      type: 'info',
+      title: 'Transcription Copied',
+      message: 'Full transcription text copied to clipboard.',
+      duration: 5000,
+    });
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopySummary = () => {
+    if (!state.finalSummary) return;
+    navigator.clipboard.writeText(state.finalSummary);
+    setCopiedSummary(true);
+    showToast({
+      type: 'info',
+      title: 'Summary Copied',
+      message: 'AI Executive Summary copied to clipboard.',
+      duration: 5000,
+    });
+    setTimeout(() => setCopiedSummary(false), 2000);
   };
 
   const handleValidateUrl = (url: string) => {
@@ -161,6 +222,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           formData.append('chunkDuration', state.chunkDuration.toString());
           formData.append('modelSize', state.modelSize);
           formData.append('operationMode', state.operationMode);
+          formData.append('omitTimestamps', (state.omitTimestamps || false).toString());
           if (activeKey) {
             formData.append('openaiApiKey', activeKey);
           }
@@ -499,6 +561,28 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
+                id="checkbox-omit-timestamps"
+                checked={state.omitTimestamps || false}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  onChange((prev) => ({
+                    ...prev,
+                    omitTimestamps: checked,
+                    finalTranscription: prev.finalTranscription
+                      ? formatTranscript(prev.finalTranscription, checked)
+                      : prev.finalTranscription,
+                  }));
+                }}
+                className={`w-4 h-4 rounded ${isDarkMode ? 'accent-[#f3e79a]' : 'accent-[#ffd600]'}`}
+              />
+              <span className={isDarkMode ? 'text-[#cccccc]' : 'text-[#333333]'}>
+                Transcribe without timestamps (passages / paragraphs)
+              </span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                id="checkbox-clear-temporary-audio"
                 checked={state.deleteAudioAfter}
                 onChange={(e) =>
                   onChange((prev) => ({ ...prev, deleteAudioAfter: e.target.checked }))
@@ -613,11 +697,31 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              {state.finalSummary && (
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  id="btn-copy-summary-top"
+                  title="Copy AI Executive Summary to clipboard"
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded font-medium text-sm border transition-colors ${
+                    copiedSummary
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                      : isDarkMode
+                      ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                      : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                  }`}
+                >
+                  {copiedSummary ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedSummary ? 'Summary Copied!' : 'Copy Summary'}</span>
+                </button>
+              )}
+
               {state.finalTranscription && (
                 <button
                   type="button"
                   onClick={handleCopyTranscript}
                   id="btn-copy-transcription-txt"
+                  title="Copy full transcription text to clipboard"
                   className={`flex items-center gap-1.5 px-3 py-2 rounded font-medium text-sm border transition-colors ${
                     copied
                       ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
@@ -650,9 +754,11 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           </div>
 
           {/* Transcript Area */}
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 flex flex-col space-y-2">
             <div className="text-sm font-medium flex items-center justify-between">
-              <span>Timestamped Transcription:</span>
+              <div className="flex items-center gap-2">
+                <span>{state.omitTimestamps ? 'Paragraph Transcription:' : 'Timestamped Transcription:'}</span>
+              </div>
               <div className="flex items-center gap-2">
                 {state.finalTranscription && (
                   <span className={`font-mono text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
@@ -663,13 +769,19 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
             </div>
             <textarea
               readOnly
-              rows={12}
+              rows={state.operationMode === 'Transcribe' ? 26 : (state.finalSummary ? 12 : 16)}
               id="textarea-transcription-output"
               value={state.finalTranscription || 'No transcription yet. Click "Start Transcription" to process audio.'}
-              className={`w-full p-3.5 rounded font-mono text-sm leading-relaxed border resize-none focus:outline-none ${
+              className={`w-full flex-1 p-3.5 rounded font-mono text-sm leading-relaxed border resize-y focus:outline-none transition-all ${
                 isDarkMode
                   ? 'bg-[#121212] border-[#2c2c2c] text-neutral-200 focus:border-[#f3e79a]'
                   : 'bg-[#fafafa] border-[#e0e0e0] text-neutral-800 focus:border-[#ffd600]'
+              } ${
+                state.operationMode === 'Transcribe'
+                  ? 'min-h-[540px] lg:min-h-[640px]'
+                  : state.finalSummary
+                  ? 'min-h-[250px]'
+                  : 'min-h-[340px]'
               }`}
             />
           </div>
@@ -677,10 +789,28 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           {/* Summary Area */}
           {state.finalSummary && (
             <div className="space-y-2">
-              <label className={`text-sm font-semibold flex items-center gap-1.5 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
-                <Sparkles className="w-4 h-4" />
-                <span>AI Executive Summary:</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className={`text-sm font-semibold flex items-center gap-1.5 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
+                  <Sparkles className="w-4 h-4" />
+                  <span>AI Executive Summary:</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleCopySummary}
+                  id="btn-copy-summary-section"
+                  title="Copy AI Executive Summary"
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium text-xs border transition-colors ${
+                    copiedSummary
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                      : isDarkMode
+                      ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                      : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                  }`}
+                >
+                  {copiedSummary ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedSummary ? 'Copied!' : 'Copy Summary'}</span>
+                </button>
+              </div>
               <div
                 id="container-ai-summary"
                 className={`p-4 rounded border text-sm leading-relaxed ${

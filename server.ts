@@ -380,8 +380,9 @@ app.post('/api/vault/decrypt', (req, res) => {
 app.post('/api/video-transcriber/process', upload.single('file'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'transcribe-'));
   try {
-    const { url, chunkDuration = '30', operationMode = 'Transcribe Only', modelSize = 'base', openaiApiKey } = req.body;
+    const { url, chunkDuration = '30', operationMode = 'Transcribe Only', modelSize = 'base', openaiApiKey, omitTimestamps } = req.body;
     const chunkDurNum = parseInt(chunkDuration, 10) || 30;
+    const isOmitTimestamps = omitTimestamps === 'true' || omitTimestamps === true;
 
     let inputPath = '';
     let title = 'Transcript';
@@ -460,9 +461,29 @@ app.post('/api/video-transcriber/process', upload.single('file'), async (req, re
       };
 
       if (whisperData.segments && whisperData.segments.length > 0) {
-        transcriptText = whisperData.segments
-          .map((s) => `[${formatSecondsToTimestamp(s.start)}] ${s.text.trim()}`)
-          .join('\n');
+        if (isOmitTimestamps) {
+          const sentences = whisperData.segments.map((s) => s.text.trim()).filter(Boolean);
+          const paragraphs: string[] = [];
+          let currentPara: string[] = [];
+          for (const s of sentences) {
+            currentPara.push(s);
+            if (
+              currentPara.length >= 3 &&
+              (s.endsWith('.') || s.endsWith('!') || s.endsWith('?') || currentPara.join(' ').length > 240)
+            ) {
+              paragraphs.push(currentPara.join(' '));
+              currentPara = [];
+            }
+          }
+          if (currentPara.length > 0) {
+            paragraphs.push(currentPara.join(' '));
+          }
+          transcriptText = paragraphs.join('\n\n') || whisperData.text || '';
+        } else {
+          transcriptText = whisperData.segments
+            .map((s) => `[${formatSecondsToTimestamp(s.start)}] ${s.text.trim()}`)
+            .join('\n');
+        }
       } else {
         transcriptText = whisperData.text || '';
       }
@@ -511,7 +532,10 @@ app.post('/api/video-transcriber/process', upload.single('file'), async (req, re
       }
     }
 
-    const fullTranscriptWithHeader = `Title: ${title}\nDuration: ${Math.round(totalDuration)}s\nModel: Whisper (${modelSize})\nChunk Duration: ${chunkDurNum}s\n\n${transcriptText}`;
+    const modeLabel = isOmitTimestamps
+      ? 'Passages / Paragraphs (No Timestamps)'
+      : `Timestamps [HH:MM:SS] (Chunks ${chunkDurNum}s)`;
+    const fullTranscriptWithHeader = `Title: ${title}\nDuration: ${Math.round(totalDuration)}s\nModel: Whisper (${modelSize})\nFormat: ${modeLabel}\n\n${transcriptText}`;
 
     res.json({
       title,
@@ -534,7 +558,7 @@ app.post('/api/video-transcriber/process', upload.single('file'), async (req, re
 app.post('/api/media-clipper/process', upload.single('file'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'clipper-'));
   try {
-    const { url, startTime = '00:00:00', endTime = '00:00:30', extractChoice = 'Audio (.mp3)' } = req.body;
+    const { url, startTime = '00:00:00', endTime = '00:00:30', extractChoice = 'Audio (.mp3)', filePath } = req.body;
     const isAudio = extractChoice.toLowerCase().includes('audio') || extractChoice.toLowerCase().includes('mp3');
 
     let inputPath = '';
@@ -543,11 +567,20 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
     if (req.file) {
       inputPath = req.file.path;
       baseName = path.parse(req.file.originalname).name;
+    } else if (filePath && typeof filePath === 'string' && filePath.trim()) {
+      const cleanPath = filePath.trim();
+      baseName = path.parse(cleanPath.replace(/\\/g, '/')).name || 'media_clip';
+      if (fs.existsSync(cleanPath)) {
+        inputPath = cleanPath;
+      } else {
+        res.status(400).json({ error: `Server file path not found: "${cleanPath}".` });
+        return;
+      }
     } else if (url && url.trim()) {
       inputPath = await downloadUrlEphemeral(url.trim(), tempDir, isAudio);
       baseName = 'web_clip';
     } else {
-      res.status(400).json({ error: 'Please provide either a media file or a media URL.' });
+      res.status(400).json({ error: 'Please provide either a media file, a server file path, or a media URL.' });
       return;
     }
 
@@ -657,7 +690,7 @@ app.post('/api/media-clipper/process', upload.single('file'), async (req, res) =
 app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'audiobook-'));
   try {
-    const { hours = '0', minutes = '0', seconds = '0', duration = '60', modelSize = 'base', openaiApiKey, filePath } = req.body;
+    const { hours = '0', minutes = '0', seconds = '0', duration = '60', modelSize = 'base', openaiApiKey, filePath, book: customBook, author: customAuthor } = req.body;
     
     let inputPath = '';
     let originalName = 'audiobook.m4b';
@@ -698,8 +731,8 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
     ]);
 
     // Extract ID3 metadata via ffprobe
-    let book = path.parse(originalName).name;
-    let author = 'Unknown Author';
+    let book = (customBook && typeof customBook === 'string' && customBook.trim()) ? customBook.trim() : path.parse(originalName).name;
+    let author = (customAuthor && typeof customAuthor === 'string' && customAuthor.trim()) ? customAuthor.trim() : 'Unknown Author';
     try {
       const { stdout } = await runFfprobe([
         '-v', 'quiet',
@@ -709,8 +742,10 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
       ]);
       const meta = JSON.parse(stdout);
       const tags = meta.format?.tags || {};
-      if (tags.title) book = tags.title.replace(/[:/\\]/g, '-');
-      if (tags.artist || tags.album_artist || tags.composer) {
+      if ((!customBook || !customBook.trim()) && tags.title) {
+        book = tags.title.replace(/[:/\\]/g, '-');
+      }
+      if ((!customAuthor || !customAuthor.trim()) && (tags.artist || tags.album_artist || tags.composer)) {
         author = (tags.artist || tags.album_artist || tags.composer).replace(/[:/\\]/g, '-');
       }
     } catch (e) {
@@ -802,18 +837,27 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
 app.post('/api/audio-extractor/process', upload.single('file'), async (req, res) => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'extractor-'));
   try {
-    const { url, startTimeSec = '0', durationSec = '30' } = req.body;
+    const { url, startTimeSec = '0', durationSec = '30', filePath } = req.body;
     let inputPath = '';
     let baseName = 'extracted_audio';
 
     if (req.file) {
       inputPath = req.file.path;
       baseName = path.parse(req.file.originalname).name;
+    } else if (filePath && typeof filePath === 'string' && filePath.trim()) {
+      const cleanPath = filePath.trim();
+      baseName = path.parse(cleanPath.replace(/\\/g, '/')).name || 'extracted_audio';
+      if (fs.existsSync(cleanPath)) {
+        inputPath = cleanPath;
+      } else {
+        res.status(400).json({ error: `Server file path not found: "${cleanPath}".` });
+        return;
+      }
     } else if (url && url.trim()) {
       inputPath = await downloadUrlEphemeral(url.trim(), tempDir, true);
       baseName = 'web_extracted';
     } else {
-      res.status(400).json({ error: 'Please upload a media file or provide a URL.' });
+      res.status(400).json({ error: 'Please upload a media file, specify a server file path, or provide a URL.' });
       return;
     }
 

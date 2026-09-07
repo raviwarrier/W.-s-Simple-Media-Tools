@@ -13,7 +13,7 @@ export default defineConfig(() => {
     },
     server: {
       // Allow connections from any host/URL
-      allowedHosts: true as true,
+      allowedHosts: true,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },

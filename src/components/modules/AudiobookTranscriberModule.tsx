@@ -5,6 +5,7 @@ import {
   CostTrackerState,
   ModuleId,
 } from '../../types';
+import { useToast } from '../../context/ToastContext';
 import {
   BookOpen,
   Download,
@@ -18,6 +19,8 @@ import {
   CheckCircle2,
   FileText,
   Key,
+  FolderOpen,
+  Upload,
 } from 'lucide-react';
 
 interface AudiobookTranscriberModuleProps {
@@ -61,6 +64,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
   onNavigateToSettings,
   isDarkMode,
 }) => {
+  const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
   const moduleTotal = costTracker.moduleTotals['audiobook-transcriber'] || { costUSD: 0, runs: 0 };
@@ -74,6 +78,12 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
     if (!state.transcript) return;
     navigator.clipboard.writeText(state.transcript);
     setCopied(true);
+    showToast({
+      type: 'info',
+      title: 'Copied to Clipboard',
+      message: 'Audiobook transcript copied successfully.',
+      duration: 5000,
+    });
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -84,7 +94,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
     // Infer title & author from filename as fallback
     const rawName = file.name.replace(/\.[^/.]+$/, '');
     let book = rawName;
-    let author = 'Unknown Author';
+    let author = '';
     if (rawName.includes('-')) {
       const parts = rawName.split('-');
       book = parts[0].trim();
@@ -93,24 +103,52 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
 
     onChange((prev) => ({
       ...prev,
+      sourceMode: 'upload',
       uploadedFileName: file.name,
       uploadedFileBlob: file,
-      detectedBook: book,
-      detectedAuthor: author,
+      detectedBook: prev.detectedBook || book,
+      detectedAuthor: prev.detectedAuthor || author,
     }));
   };
 
   const handleTranscribeSnippet = () => {
     setErrorMsg('');
-    if (!state.uploadedFileBlob && !state.uploadedFileName) {
-      setErrorMsg('Please upload an audiobook file (mp3, m4a, m4b, ogg).');
+    const hasFile = !!(state.uploadedFileBlob || state.uploadedFileName);
+    const hasPath = !!(state.filePath && state.filePath.trim());
+
+    if (state.sourceMode === 'path' && !hasPath) {
+      const msg = 'Please enter a valid server or local file path (e.g. /srv/ssd/Bookshelf/Audiobooks/book/book.m4b or B:\\audiobooks\\book\\book.m4b).';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing File Path',
+        message: msg,
+        duration: 15000,
+      });
+      return;
+    }
+
+    if (!hasFile && !hasPath) {
+      const msg = 'Please upload an audiobook file (.m4b, .mp3, .m4a, .ogg) or specify a server file path.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'No Audiobook Specified',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
     if (!activeKey) {
-      setErrorMsg(
-        'OpenAI API key is not set. Audiobook Whisper transcription requires an OpenAI API key (sk-...). Please configure your key in Encrypted Secrets.'
-      );
+      const msg = 'OpenAI API key is not set. Audiobook Whisper transcription requires an OpenAI API key (sk-...). Please configure your key in Encrypted Secrets.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'OpenAI API Key Missing',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
@@ -119,8 +157,8 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
       .toString()
       .padStart(2, '0')}m${state.seconds.toString().padStart(2, '0')}s`;
 
-    const cleanBook = (state.detectedBook || 'Audiobook').replace(/[/\\:*?"<>|]/g, '-');
-    const cleanAuthor = (state.detectedAuthor || 'Author').replace(/[/\\:*?"<>|]/g, '-');
+    const cleanBook = (state.detectedBook.trim() || 'Audiobook').replace(/[/\\:*?"<>|]/g, '-');
+    const cleanAuthor = (state.detectedAuthor.trim() || 'Author').replace(/[/\\:*?"<>|]/g, '-');
     const targetFilename = `${cleanBook} - ${cleanAuthor} - ${startLabel}-${state.duration}s.txt`;
 
     // Revoke previous downloadReady URL for this module
@@ -145,8 +183,16 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
           if (checkCancelled()) throw new Error('Cancelled');
 
           const formData = new FormData();
-          if (state.uploadedFileBlob) {
+          if (state.sourceMode === 'path' || (!state.uploadedFileBlob && state.filePath.trim())) {
+            formData.append('filePath', state.filePath.trim());
+          } else if (state.uploadedFileBlob) {
             formData.append('file', state.uploadedFileBlob);
+          }
+          if (state.detectedBook.trim()) {
+            formData.append('book', state.detectedBook.trim());
+          }
+          if (state.detectedAuthor.trim()) {
+            formData.append('author', state.detectedAuthor.trim());
           }
           formData.append('hours', state.hours.toString());
           formData.append('minutes', state.minutes.toString());
@@ -315,50 +361,127 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
         >
           <div className="border-b border-inherit pb-2">
             <h4 className={`text-xs font-semibold uppercase tracking-wider ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
-              Audiobook Upload & Snippet Range
+              Audiobook Source & Snippet Range
             </h4>
           </div>
 
-          {/* Upload File */}
+          {/* Source Mode Switcher */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">Audiobook File (mp3, m4a, m4b, ogg):</label>
-            <div
-              className={`border border-dashed rounded p-4 text-center cursor-pointer transition-colors ${
-                isDarkMode
-                  ? 'border-[#383838] hover:border-[#f3e79a] bg-[#121212]'
-                  : 'border-[#d4d4d8] hover:border-[#ffd600] bg-[#fafafa]'
-              }`}
-              onClick={() => document.getElementById('audiobook-upload-input')?.click()}
-            >
-              <input
-                id="audiobook-upload-input"
-                type="file"
-                accept=".mp3,.m4a,.m4b,.ogg,audio/*"
-                className="hidden"
-                onChange={handleFileUpload}
-              />
-              <FileAudio className={`w-6 h-6 mx-auto mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
-              <p className="text-xs font-medium">
-                {state.uploadedFileName ? (
-                  <span className={isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}>
-                    {state.uploadedFileName}
-                  </span>
-                ) : (
-                  'Click to upload audiobook file'
-                )}
-              </p>
-              <p className={`text-xs mt-0.5 font-mono ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
-                Supports M4B, MP3, M4A, OGG
-              </p>
+            <label className="text-xs font-medium">Source Mode:</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => onChange((prev) => ({ ...prev, sourceMode: 'upload' }))}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                  (state.sourceMode || 'upload') === 'upload'
+                    ? isDarkMode
+                      ? 'bg-[#222222] border-[#f3e79a] text-[#f3e79a]'
+                      : 'bg-amber-50 border-amber-400 text-amber-900 font-semibold'
+                    : isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-neutral-400 hover:text-white'
+                    : 'bg-white border-neutral-200 text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload from Browser</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onChange((prev) => ({ ...prev, sourceMode: 'path' }))}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded text-xs font-medium border transition-colors ${
+                  state.sourceMode === 'path'
+                    ? isDarkMode
+                      ? 'bg-[#222222] border-[#f3e79a] text-[#f3e79a]'
+                      : 'bg-amber-50 border-amber-400 text-amber-900 font-semibold'
+                    : isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-neutral-400 hover:text-white'
+                    : 'bg-white border-neutral-200 text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>Server / Local Path</span>
+              </button>
             </div>
           </div>
 
-          {/* Metadata Fields (editable) */}
+          {/* Upload File View */}
+          {(state.sourceMode || 'upload') === 'upload' ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium">Audiobook File (mp3, m4a, m4b, ogg):</label>
+              <div
+                className={`border border-dashed rounded p-4 text-center cursor-pointer transition-colors ${
+                  isDarkMode
+                    ? 'border-[#383838] hover:border-[#f3e79a] bg-[#121212]'
+                    : 'border-[#d4d4d8] hover:border-[#ffd600] bg-[#fafafa]'
+                }`}
+                onClick={() => document.getElementById('audiobook-upload-input')?.click()}
+              >
+                <input
+                  id="audiobook-upload-input"
+                  type="file"
+                  accept=".mp3,.m4a,.m4b,.ogg,audio/*"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                <FileAudio className={`w-6 h-6 mx-auto mb-1 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                <p className="text-xs font-medium">
+                  {state.uploadedFileName ? (
+                    <span className={isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}>
+                      {state.uploadedFileName}
+                    </span>
+                  ) : (
+                    'Click to upload audiobook file'
+                  )}
+                </p>
+                <p className={`text-xs mt-0.5 font-mono ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+                  Supports M4B, MP3, M4A, OGG
+                </p>
+              </div>
+            </div>
+          ) : (
+            /* Server Path View (Linux & Windows) */
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium">Audiobook Server Path (Linux or Windows):</label>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isDarkMode ? 'bg-[#222222] text-[#888888]' : 'bg-neutral-100 text-neutral-600'}`}>
+                  Direct Disk Access
+                </span>
+              </div>
+              <input
+                type="text"
+                id="input-audiobook-path"
+                value={state.filePath || ''}
+                onChange={(e) =>
+                  onChange((prev) => ({
+                    ...prev,
+                    filePath: e.target.value,
+                  }))
+                }
+                placeholder="b:\audiobooks\book\book.m4b or /srv/ssd/Bookshelf/Audiobooks/book/book.m4b"
+                className={`w-full px-3 py-2 text-xs font-mono rounded border focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              />
+              <p className={`text-[11px] ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+                Allows users of CLI-based Linux systems, headless servers, or local NAS to access audiobooks directly from disk without upload overhead.
+              </p>
+            </div>
+          )}
+
+          {/* Metadata Fields (editable, optional) */}
           <div className="grid grid-cols-2 gap-3 pt-0.5">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium flex items-center gap-1">
-                <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
-                <span>Book Title:</span>
+              <label className="text-xs font-medium flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                  <span>Book Title:</span>
+                </span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isDarkMode ? 'text-[#888888] bg-[#222222]' : 'text-[#666666] bg-neutral-100'}`}>
+                  Optional
+                </span>
               </label>
               <input
                 type="text"
@@ -366,7 +489,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
                 onChange={(e) =>
                   onChange((prev) => ({ ...prev, detectedBook: e.target.value }))
                 }
-                placeholder="Book Title"
+                placeholder="Auto-detected from ID3 tags if empty"
                 className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
                   isDarkMode
                     ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'
@@ -375,9 +498,14 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium flex items-center gap-1">
-                <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
-                <span>Author / Artist:</span>
+              <label className="text-xs font-medium flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Tag className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                  <span>Author / Artist:</span>
+                </span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${isDarkMode ? 'text-[#888888] bg-[#222222]' : 'text-[#666666] bg-neutral-100'}`}>
+                  Optional
+                </span>
               </label>
               <input
                 type="text"
@@ -385,7 +513,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
                 onChange={(e) =>
                   onChange((prev) => ({ ...prev, detectedAuthor: e.target.value }))
                 }
-                placeholder="Author Name"
+                placeholder="Auto-detected from ID3 tags if empty"
                 className={`w-full px-3 py-2 text-xs rounded border focus:outline-none ${
                   isDarkMode
                     ? 'bg-[#121212] border-[#333333] text-white focus:border-[#f3e79a]'

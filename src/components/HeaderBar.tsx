@@ -122,6 +122,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold tracking-tight truncate">{meta.title}</h2>
+            <span
+              id="header-version-badge"
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded border hidden sm:inline-block font-semibold ${
+                isDarkMode
+                  ? 'bg-[#1a1a1a] border-[#2e2e2e] text-[#f3e79a]'
+                  : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
+              }`}
+            >
+              v1.0
+            </span>
           </div>
           <p
             className={`text-xs hidden sm:block truncate mt-0.5 ${

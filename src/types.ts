@@ -74,6 +74,7 @@ export interface VideoTranscriberState {
   temperature: number;
   beamSize: number;
   chunkDuration: number;
+  omitTimestamps?: boolean;
   deleteAudioAfter: boolean;
   operationMode: 'Transcribe' | 'Transcribe & Summarize';
   finalTranscription: string;
@@ -84,8 +85,9 @@ export interface VideoTranscriberState {
 
 // Module 2 State
 export interface MediaClipperState {
-  sourceMode: 'Upload file' | 'URL';
+  sourceMode: 'Upload file' | 'URL' | 'Server Path';
   mediaUrl: string;
+  filePath?: string;
   uploadedFileName: string | null;
   uploadedFileBlob: Blob | null;
   startTimeStr: string; // hh:mm:ss

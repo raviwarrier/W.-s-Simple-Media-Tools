@@ -8,6 +8,7 @@ import {
   hhmmssToSeconds,
   clipAudioClientSide,
 } from '../../utils/audioProcessor';
+import { useToast } from '../../context/ToastContext';
 import {
   Scissors,
   Download,
@@ -19,6 +20,7 @@ import {
   AlertCircle,
   FileCheck,
   Key,
+  HardDrive,
 } from 'lucide-react';
 
 interface MediaClipperModuleProps {
@@ -59,6 +61,7 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
   onRegisterBackgroundTask,
   isDarkMode,
 }) => {
+  const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
   const moduleTotal = costTracker.moduleTotals['media-clipper'] || { costUSD: 0, runs: 0 };
 
@@ -79,24 +82,61 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
     const endSec = hhmmssToSeconds(state.endTimeStr);
 
     if (startSec === null || endSec === null || endSec <= startSec) {
-      setErrorMsg('Invalid timestamps. Ensure End Time is strictly greater than Start Time.');
+      const msg = 'Invalid timestamps. Ensure End Time is strictly greater than Start Time.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Invalid Timestamp Range',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
     if (state.sourceMode === 'Upload file' && !state.uploadedFileBlob) {
-      setErrorMsg('Please upload a source video or audio file.');
+      const msg = 'Please upload a source video or audio file.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing Media File',
+        message: msg,
+        duration: 15000,
+      });
+      return;
+    }
+
+    if (state.sourceMode === 'Server Path' && (!state.filePath || !state.filePath.trim())) {
+      const msg = 'Please enter a valid server file path (e.g. /srv/media/video.mp4 or B:\\media\\video.mp4).';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing Server Path',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
     if (state.sourceMode === 'URL' && !state.mediaUrl) {
-      setErrorMsg('Please enter a media URL.');
+      const msg = 'Please enter a media URL.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing Media URL',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
     const clipDuration = endSec - startSec;
-    const baseName = state.uploadedFileName
-      ? state.uploadedFileName.replace(/\.[^/.]+$/, '')
-      : 'web_media';
+    let baseName = 'web_media';
+    if (state.uploadedFileName) {
+      baseName = state.uploadedFileName.replace(/\.[^/.]+$/, '');
+    } else if (state.filePath) {
+      const clean = state.filePath.trim().replace(/\\/g, '/');
+      baseName = clean.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'server_media';
+    }
 
     const ext = state.extractChoice === 'Audio' ? 'mp3' : 'mp4';
     const outFilename = `${baseName}_clip_${Math.floor(startSec)}-${Math.floor(endSec)}.${ext}`;
@@ -118,12 +158,14 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
       estimatedTotalSec: Math.min(25, Math.max(5, clipDuration * 0.4)),
       execute: async (onProgress, checkCancelled) => {
         try {
-          onProgress(15, 'Uploading media and buffering stream in ephemeral storage...');
+          onProgress(15, 'Preparing media stream and ephemeral storage...');
           if (checkCancelled()) throw new Error('Cancelled');
 
           const formData = new FormData();
-          if (state.uploadedFileBlob) {
+          if (state.sourceMode === 'Upload file' && state.uploadedFileBlob) {
             formData.append('file', state.uploadedFileBlob);
+          } else if (state.sourceMode === 'Server Path' && state.filePath) {
+            formData.append('filePath', state.filePath.trim());
           } else if (state.mediaUrl) {
             formData.append('url', state.mediaUrl);
           }
@@ -182,6 +224,13 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
 
           onProgress(100, 'Done. Clip ready for download.');
 
+          showToast({
+            type: 'success',
+            title: 'Clip Generated',
+            message: `${finalFilename} (${state.extractChoice}) is ready for preview and download.`,
+            duration: 8000,
+          });
+
           onRecordCost(
             'media-clipper',
             `FFmpeg Clip (${state.extractChoice})`,
@@ -211,6 +260,13 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
           };
         } catch (err: unknown) {
           onChange((prev) => ({ ...prev, isProcessing: false }));
+          const msg = (err as Error)?.message || 'Clipping failed';
+          showToast({
+            type: 'error',
+            title: 'Media Clipping Failed',
+            message: msg,
+            duration: 15000,
+          });
           throw err;
         }
       },
@@ -288,12 +344,12 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
           {/* Source Mode */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Select Source Mode:</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 id="btn-src-upload"
                 onClick={() => onChange((prev) => ({ ...prev, sourceMode: 'Upload file' }))}
-                className={`py-2 px-3 rounded text-xs font-medium border transition-all ${
+                className={`py-2 px-2.5 rounded text-xs font-medium border transition-all ${
                   state.sourceMode === 'Upload file'
                     ? isDarkMode
                       ? 'bg-[#f3e79a]/15 border-[#f3e79a] text-[#f3e79a]'
@@ -307,9 +363,25 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
               </button>
               <button
                 type="button"
+                id="btn-src-path"
+                onClick={() => onChange((prev) => ({ ...prev, sourceMode: 'Server Path' }))}
+                className={`py-2 px-2.5 rounded text-xs font-medium border transition-all ${
+                  state.sourceMode === 'Server Path'
+                    ? isDarkMode
+                      ? 'bg-[#f3e79a]/15 border-[#f3e79a] text-[#f3e79a]'
+                      : 'bg-[#ffd600]/25 border-[#ffd600] text-neutral-900 font-semibold'
+                    : isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-[#888888] hover:text-white'
+                    : 'bg-white border-[#d4d4d8] text-neutral-700 hover:bg-[#f4f4f5]'
+                }`}
+              >
+                Server Path
+              </button>
+              <button
+                type="button"
                 id="btn-src-url"
                 onClick={() => onChange((prev) => ({ ...prev, sourceMode: 'URL' }))}
-                className={`py-2 px-3 rounded text-xs font-medium border transition-all ${
+                className={`py-2 px-2.5 rounded text-xs font-medium border transition-all ${
                   state.sourceMode === 'URL'
                     ? isDarkMode
                       ? 'bg-[#f3e79a]/15 border-[#f3e79a] text-[#f3e79a]'
@@ -325,7 +397,7 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
           </div>
 
           {/* Source Input */}
-          {state.sourceMode === 'Upload file' ? (
+          {state.sourceMode === 'Upload file' && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Choose Video/Audio File:</label>
               <div
@@ -358,7 +430,35 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
                 </p>
               </div>
             </div>
-          ) : (
+          )}
+
+          {state.sourceMode === 'Server Path' && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium flex items-center gap-1.5">
+                <HardDrive className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                <span>Media File Disk / Server Path:</span>
+              </label>
+              <input
+                type="text"
+                id="input-clipper-path"
+                placeholder="e.g. /srv/media/video.mp4 or B:\movies\film.mkv"
+                value={state.filePath || ''}
+                onChange={(e) =>
+                  onChange((prev) => ({ ...prev, filePath: e.target.value }))
+                }
+                className={`w-full px-3 py-2 rounded border text-xs font-mono focus:outline-none ${
+                  isDarkMode
+                    ? 'bg-[#121212] border-[#333333] text-white placeholder-neutral-500 focus:border-[#f3e79a]'
+                    : 'bg-white border-[#d4d4d8] text-neutral-900 focus:border-[#ffd600]'
+                }`}
+              />
+              <p className={`text-xs ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+                Accepts both Linux paths (<code>/srv/...</code>) and Windows paths (<code>B:\...</code>).
+              </p>
+            </div>
+          )}
+
+          {state.sourceMode === 'URL' && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium">Media Stream URL:</label>
               <input

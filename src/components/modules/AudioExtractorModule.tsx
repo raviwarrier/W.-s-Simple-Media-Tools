@@ -5,6 +5,7 @@ import {
   CostTrackerState,
 } from '../../types';
 import { clipAudioClientSide } from '../../utils/audioProcessor';
+import { useToast } from '../../context/ToastContext';
 import {
   Music,
   Download,
@@ -52,6 +53,7 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
   onRegisterBackgroundTask,
   isDarkMode,
 }) => {
+  const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
   const [videoDuration, setVideoDuration] = useState<number>(300); // default 5m
   const moduleTotal = costTracker.moduleTotals['audio-extractor'] || { costUSD: 0, runs: 0 };
@@ -70,11 +72,25 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
   const handleExtractAudio = () => {
     setErrorMsg('');
     if (state.sourceType === 'Upload File' && !state.uploadedFileBlob) {
-      setErrorMsg('Please upload a video or audio file first.');
+      const msg = 'Please upload a video or audio file first.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing Source File',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
     if (state.sourceType === 'Paste URL' && !state.mediaUrl) {
-      setErrorMsg('Please enter a media URL.');
+      const msg = 'Please enter a media URL.';
+      setErrorMsg(msg);
+      showToast({
+        type: 'warning',
+        title: 'Missing Media URL',
+        message: msg,
+        duration: 15000,
+      });
       return;
     }
 
@@ -141,6 +157,13 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
 
           onProgress(100, 'Done. Audio clip ready for download.');
 
+          showToast({
+            type: 'success',
+            title: 'Audio Extracted',
+            message: `${finalFilename} has been extracted.`,
+            duration: 8000,
+          });
+
           onRecordCost(
             'audio-extractor',
             `Audio Extract (${state.durationSec}s)`,
@@ -168,6 +191,13 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
           };
         } catch (err: unknown) {
           onChange((prev) => ({ ...prev, isProcessing: false }));
+          const msg = (err as Error)?.message || 'Audio extraction failed';
+          showToast({
+            type: 'error',
+            title: 'Audio Extraction Failed',
+            message: msg,
+            duration: 15000,
+          });
           throw err;
         }
       },

@@ -77,7 +77,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-2.5">
           <AppLogo isDarkMode={isDarkMode} className="w-7 h-7" />
           <div className="min-w-0 flex-1">
-            <h1 className="text-xs font-semibold tracking-tight truncate">W.&apos;s Simple Media Tools</h1>
+            <div className="flex items-center gap-1.5">
+              <h1 className="text-xs font-semibold tracking-tight truncate">W.&apos;s Simple Media Tools</h1>
+              <span
+                id="badge-app-version"
+                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border font-semibold shrink-0 ${
+                  isDarkMode
+                    ? 'bg-[#1e1e1e] border-[#333333] text-[#f3e79a]'
+                    : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
+                }`}
+              >
+                v1.0
+              </span>
+            </div>
           </div>
         </div>
       </div>
