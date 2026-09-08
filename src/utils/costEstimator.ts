@@ -46,6 +46,7 @@ export function getInitialCostState(): CostTrackerState {
       'video-transcriber': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
       'media-clipper': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
       'audiobook-transcriber': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
+      'audible-fetcher': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
       'audio-extractor': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
       'secrets-settings': { costUSD: 0.0, runs: 0, totalSeconds: 0 },
       'cost-analytics': { costUSD: 0.0, runs: 0, totalSeconds: 0 },

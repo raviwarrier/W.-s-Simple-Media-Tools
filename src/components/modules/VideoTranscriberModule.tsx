@@ -222,7 +222,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           formData.append('chunkDuration', state.chunkDuration.toString());
           formData.append('modelSize', state.modelSize);
           formData.append('operationMode', state.operationMode);
-          formData.append('omitTimestamps', (state.omitTimestamps || false).toString());
+          formData.append('omitTimestamps', (state.omitTimestamps ?? true).toString());
           if (activeKey) {
             formData.append('openaiApiKey', activeKey);
           }
@@ -562,7 +562,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
               <input
                 type="checkbox"
                 id="checkbox-omit-timestamps"
-                checked={state.omitTimestamps || false}
+                checked={state.omitTimestamps ?? true}
                 onChange={(e) => {
                   const checked = e.target.checked;
                   onChange((prev) => ({

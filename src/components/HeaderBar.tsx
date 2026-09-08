@@ -38,6 +38,10 @@ const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> =
     title: "W.'s Audiobook Snippet Transcriber",
     desc: 'Audiobook range extraction with ffprobe metadata tags & Whisper',
   },
+  'audible-fetcher': {
+    title: 'Audible Book Details Fetcher',
+    desc: 'Audible Catalog API & Audnex metadata lookup (adapted from Audiobookshelf GPL-3.0)',
+  },
   'secrets-settings': {
     title: 'Encrypted Secrets Vault & Providers',
     desc: 'AES-GCM key management and unified vs per-module token policy',
@@ -130,7 +134,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
               }`}
             >
-              v1.0
+              v1.5
             </span>
           </div>
           <p

@@ -7,6 +7,7 @@ import {
   VideoTranscriberState,
   MediaClipperState,
   AudiobookTranscriberState,
+  AudibleFetcherState,
 } from './types';
 import {
   getInitialSecretStore,
@@ -22,6 +23,7 @@ import { TaskDrawer } from './components/TaskDrawer';
 import { VideoTranscriberModule } from './components/modules/VideoTranscriberModule';
 import { MediaClipperModule } from './components/modules/MediaClipperModule';
 import { AudiobookTranscriberModule } from './components/modules/AudiobookTranscriberModule';
+import { AudibleFetcherModule } from './components/modules/AudibleFetcherModule';
 import { SecretsSettingsModule } from './components/modules/SecretsSettingsModule';
 import { CostAnalyticsModule } from './components/modules/CostAnalyticsModule';
 import { CodeEnvironmentModule } from './components/modules/CodeEnvironmentModule';
@@ -131,7 +133,7 @@ function AppContent() {
     temperature: 0.0,
     beamSize: 5,
     chunkDuration: 30,
-    omitTimestamps: false,
+    omitTimestamps: true,
     deleteAudioAfter: true,
     operationMode: 'Transcribe',
     finalTranscription: '',
@@ -167,6 +169,18 @@ function AppContent() {
     transcript: '',
     downloadReady: null,
     isProcessing: false,
+  });
+
+  const [audibleFetcherState, setAudibleFetcherState] = useState<AudibleFetcherState>({
+    title: '',
+    author: '',
+    region: 'us',
+    timeout: 10000,
+    results: [],
+    selectedBook: null,
+    isSearching: false,
+    hasSearched: false,
+    errorMessage: null,
   });
 
   // Calculate ephemeral in-memory buffer usage for zero-retention audit
@@ -479,6 +493,22 @@ function AppContent() {
             />
           )}
 
+          {currentModule === 'audible-fetcher' && (
+            <AudibleFetcherModule
+              state={audibleFetcherState}
+              onChange={setAudibleFetcherState}
+              onNavigateToAudiobookTranscriber={(bookTitle, authorName) => {
+                setAudiobookTranscriberState((prev) => ({
+                  ...prev,
+                  detectedBook: bookTitle,
+                  detectedAuthor: authorName,
+                }));
+                setCurrentModule('audiobook-transcriber');
+              }}
+              isDarkMode={isDarkMode}
+            />
+          )}
+
           {currentModule === 'secrets-settings' && (
             <SecretsSettingsModule
               secretStore={secretStore}
@@ -507,6 +537,7 @@ function AppContent() {
                   'video-transcriber': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'media-clipper': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'audiobook-transcriber': { costUSD: 0, runs: 0, totalSeconds: 0 },
+                  'audible-fetcher': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'audio-extractor': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'secrets-settings': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'cost-analytics': { costUSD: 0, runs: 0, totalSeconds: 0 },

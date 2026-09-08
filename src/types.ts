@@ -2,6 +2,7 @@ export type ModuleId =
   | 'video-transcriber'
   | 'media-clipper'
   | 'audiobook-transcriber'
+  | 'audible-fetcher'
   | 'audio-extractor'
   | 'secrets-settings'
   | 'cost-analytics'
@@ -146,4 +147,38 @@ export interface AppNotification {
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   timestamp: number;
+}
+
+// Module: Audible Fetcher State
+export interface AudibleBookResult {
+  title: string;
+  subtitle: string | null;
+  author: string | null;
+  narrator: string | null;
+  publisher: string | null;
+  publishedYear: string | null;
+  description: string | null;
+  cover: string | null;
+  asin: string | null;
+  isbn: string | null;
+  genres: string[] | null;
+  tags: string[] | null;
+  series: Array<{ series: string; sequence: string }> | null;
+  language: string | null;
+  duration: number; // in minutes
+  region: string | null;
+  rating: number | null;
+  abridged: boolean;
+}
+
+export interface AudibleFetcherState {
+  title: string;
+  author: string;
+  region: string;
+  timeout: number;
+  results: AudibleBookResult[];
+  selectedBook: AudibleBookResult | null;
+  isSearching: boolean;
+  hasSearched: boolean;
+  errorMessage: string | null;
 }

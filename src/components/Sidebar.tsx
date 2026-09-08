@@ -9,6 +9,7 @@ import {
   Activity,
   Key,
   Trash2,
+  Headphones,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -49,6 +50,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: <BookOpen className="w-4 h-4" />,
     },
     {
+      id: 'audible-fetcher',
+      label: 'Audible Fetcher',
+      icon: <Headphones className="w-4 h-4" />,
+    },
+    {
       id: 'secrets-settings',
       label: 'Encrypted Secrets',
       icon: <Key className="w-4 h-4" />,
@@ -87,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
                 }`}
               >
-                v1.0
+                v1.5
               </span>
             </div>
           </div>
@@ -100,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           Functional Modules
         </p>
 
-        {navItems.slice(0, 3).map((item) => {
+        {navItems.slice(0, 4).map((item) => {
           const isActive = currentModule === item.id;
           return (
             <button
@@ -132,7 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Settings & Operations
           </p>
 
-          {navItems.slice(3).map((item) => {
+          {navItems.slice(4).map((item) => {
             const isActive = currentModule === item.id;
             return (
               <button

@@ -1,6 +1,6 @@
 {
   "name": "W.'s Simple Media Tools",
-  "description": "W.'s Simple Media Tools v1.0 - Video transcription, media clipping, and audiobook transcribing with zero-retention ephemeral storage.",
+  "description": "W.'s Simple Media Tools v1.5 - Video transcription, media clipping, audiobook transcribing, and Audible book details fetcher with zero-retention ephemeral storage.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 import { createServer as createViteServer } from 'vite';
+import { fetchBookDetails } from './server/audibleFetcher';
 
 dotenv.config();
 
@@ -893,6 +894,73 @@ app.post('/api/audio-extractor/process', upload.single('file'), async (req, res)
   } finally {
     if (req.file?.path) await safeRemove(req.file.path);
     await safeRemove(tempDir);
+  }
+});
+
+// -------------------------------------------------------------
+// 5. Audible Book Fetcher API (Derived from Audiobookshelf GPL-3.0)
+// -------------------------------------------------------------
+app.post('/api/audible-fetcher/search', async (req, res) => {
+  try {
+    const { title, author, region = 'us', timeout = 10000 } = req.body;
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      res.status(400).json({ error: 'Book or audiobook title is required.' });
+      return;
+    }
+
+    const books = await fetchBookDetails({
+      title: title.trim(),
+      author: author && typeof author === 'string' ? author.trim() : undefined,
+      region: typeof region === 'string' ? region.trim() : 'us',
+      timeout: Number(timeout) || 10000,
+    });
+
+    res.json({
+      success: true,
+      query: { title, author: author || null, region, timeout },
+      count: books.length,
+      books,
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      error: (err as Error)?.message || 'Audible search failed',
+      books: [],
+    });
+  }
+});
+
+app.get('/api/audible-fetcher/search', async (req, res) => {
+  try {
+    const title = req.query.title as string;
+    const author = req.query.author as string | undefined;
+    const region = (req.query.region as string) || 'us';
+    const timeout = req.query.timeout ? Number(req.query.timeout) : 10000;
+
+    if (!title || typeof title !== 'string' || !title.trim()) {
+      res.status(400).json({ error: 'Book or audiobook title is required.' });
+      return;
+    }
+
+    const books = await fetchBookDetails({
+      title: title.trim(),
+      author: author && typeof author === 'string' ? author.trim() : undefined,
+      region,
+      timeout,
+    });
+
+    res.json({
+      success: true,
+      query: { title, author: author || null, region, timeout },
+      count: books.length,
+      books,
+    });
+  } catch (err: unknown) {
+    res.status(500).json({
+      success: false,
+      error: (err as Error)?.message || 'Audible search failed',
+      books: [],
+    });
   }
 });
 
