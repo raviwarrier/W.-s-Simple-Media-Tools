@@ -1,415 +1,329 @@
-export const MP3TAG_SRC_CODE = `#######################################################################
-# Release Notes
-# v2026-09-08
-# - Enhanced with Audible/Audnex logic parity from Simple Media Tools:
-#   * Added SUBTITLE extraction (from data-test="product-subtitle" or subtitleLabel).
-#   * Added TITLE (mirrors ALBUM for standard tag players).
-#   * Added ARTIST (mirrors ALBUMARTIST for universal player/library support).
-#   * Added SERIES and SERIES-PART (clean numeric extraction from seriesLabel).
-#   * Added NARRATOR tag (mirrors COMPOSER for Audiobookshelf, Plex, and Smart AudioBook).
-#   * Added GENRE extraction (from categoriesLabel multi-genre list).
-#   * Added ISBN extraction (from JSON-LD or page text).
-#   * Enhanced COVERURL to strip Amazon CDN thumbnail limits (._SL500_ -> full high-res).
-#   * Added DESCRIPTION tag (mirrors COMMENT for podcast/audiobook readers).
-#   * Preserved rock-solid index search and robust cleanups.
-#######################################################################
+export const MP3TAG_SRC_CODE = `# ###################################################################
+# Mp3tag Web Source for Audible.com using Audible Catalog API
+#
+# Search by: Album, ASIN, Title, Author + Title
+# Fully standalone, self-contained (no external .inc or .settings required)
+#
+# Tags populated:
+#   - ALBUM, TITLE, SUBTITLE
+#   - ARTIST, ALBUMARTIST (Authors)
+#   - COMPOSER, NARRATOR (Narrators)
+#   - SERIES, SERIES-PART, CONTENTGROUP, ALBUMSORT
+#   - SHOWMOVEMENT, MOVEMENTNAME, MOVEMENT
+#   - GENRE (Hierarchical Category Ladders)
+#   - PUBLISHER, YEAR, RELEASETIME
+#   - COMMENT, DESCRIPTION (Clean HTML-stripped summary)
+#   - COVERURL (High-res 2400x2400 / 1000px master artwork)
+#   - ASIN, ISBN, LANGUAGE, FORMAT
+#   - RATING, RATING WMP
+#   - ITUNESMEDIATYPE ("Audiobook"), ITUNESGAPLESS ("1")
+#   - WWWAUDIOFILE, WWW (Direct Audible product link)
+# ###################################################################
 
 [Name]=Audible.com#Search by Album
-[BasedOn]=https://www.audible.com
-[Encoding]=utf-8
-[UserAgent]=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36
+[BasedOn]=https://api.audible.com
+[IndexUrl]=https://api.audible.com/1.0/catalog/products?response_groups=contributors,media,product_desc,product_attrs,product_extended_attrs,series&image_sizes=500&num_results=25&products_sort_by=Relevance&%s
+[AlbumUrl]=https://api.audible.com/1.0/catalog/products/
 [WordSeparator]=+
-[Timeout]=20
+[Encoding]=url-utf-8
+[UserAgent]=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36
+[Timeout]=25
 
-# Search fields (Mp3tag requires the double "||" separator)
+# Search options
 [SearchBy]=Album||%album%||keywords=%s
 [SearchBy]=ASIN||%asin%||keywords=%s
+[SearchBy]=Title||%title%||keywords=%s
+[SearchBy]=Author + Title||%artist% %album%||keywords=%s
 [SearchBy]=Album + Author||%album% %artist%||keywords=%s
 
-# Search and detail URLs
-[IndexUrl]=https://www.audible.com/search?ipRedirectOverride=true&overrideBaseCountry=true&language=en_US&keywords=%s
-[AlbumUrl]=%_url%
+# Result columns in Mp3tag search dialog
+[IndexFormat]=%_url%|%Album%|%Author%|%Narrator%|%ASIN%|%Duration%|%Year%|%Language%
 
-# Columns in the search dialog
-[IndexFormat]=%_url%|%ALBUM%|%ALBUMARTIST%|%ASIN%|%DURATION%|%YEAR%|%LANGUAGE%
-
-#######################################################################
-# I N D E X
-#######################################################################
+# -------------------------------------------------------------------
+# PARSER SCRIPT: Search Results Index
+# -------------------------------------------------------------------
 [ParserScriptIndex]
-gotoline 1
-unspace
-findline "aria-label=\\"Search results\\"" 1 1
-if "aria-label=\\"Search results\\""
-\tjoinuntil "</main>"
-endif
+replace "|" "$verticalBar()"
+json "ON" "current"
+json_select "total_results"
+IfNot "0"
+    json_foreach "products"
+        # 1. %_url% (Appended to [AlbumUrl] for detailed metadata)
+        json_select "asin"
+        SayRest
+        Say "?response_groups=category_ladders,contributors,media,product_desc,product_attrs,product_extended_attrs,rating,series,product_details&image_sizes=2400,1000,700,500"
+        Say "|"
 
-regexpreplace "\\s\\s+" " "
-replace "> <" "><"
+        # 2. %Album%
+        json_select "title"
+        RegexpReplace "(.*?) \\(Narrated by .*" "$1"
+        SayRest
+        Say "|"
 
-set "i" "0"
-while "<a href=\\"/pd/" 200
-\tfindinline "href=\\"/pd/"
-\tif "href=\\"/pd/"
-\t\tmovechar 6
-\t\toutputto "_url"
-\t\tsay "https://www.audible.com/pd/"
-\t\tsayuntil "\\""
+        # 3. %Author%
+        OutputTo "AUTHORS"
+        json_foreach "authors"
+            json_select "name"
+            IfNot ""
+                IfOutput "AUTHORS"
+                    Say ", "
+                EndIf
+                SayRest
+            EndIf
+        json_foreach_end
+        OutputTo "Output"
+        SayOutput "AUTHORS"
+        Set "AUTHORS"
+        SayRest
+        Say "|"
 
-\t\tmoveline 0
-\t\tjoinuntil "</li>"
-\t\toutputto "_block"
-\t\tsayrest
+        # 4. %Narrator%
+        OutputTo "NARRATORS"
+        json_foreach "narrators"
+            json_select "name"
+            IfNot ""
+                IfOutput "NARRATORS"
+                    Say ", "
+                EndIf
+                SayRest
+            EndIf
+        json_foreach_end
+        OutputTo "Output"
+        SayOutput "NARRATORS"
+        Set "NARRATORS"
+        SayRest
+        Say "|"
 
-\t\toutputto "ASIN"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?i)(?<=data-asin=\\")[A-Z0-9]{10}"
+        # 5. %ASIN%
+        json_select "asin"
+        SayRest
+        Say "|"
 
-\t\toutputto "ALBUM"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?<=aria-hidden=\\"true\\">)[^<]+(?=<)"
-\t\tifnotregexp "(?<=aria-hidden=\\"true\\">)[^<]+(?=<)"
-\t\t\toutputto "ALBUM"
-\t\t\tsayoutput "_block"
-\t\t\tSayRegexp "(?<=alt=\\")[^\\"]+(?=\\")"
-\t\t\tifnotregexp "(?<=alt=\\")[^\\"]+(?=\\")"
-\t\t\t\toutputto "ALBUM"
-\t\t\t\tsayoutput "_block"
-\t\t\t\tSayRegexp "(?<=title=\\")[^\\"]+(?=\\")"
-\t\t\tendif
-\t\tendif
+        # 6. %Duration%
+        json_select "runtime_length_min"
+        SayDuration "m" 1
+        Say "|"
 
-\t\toutputto "ALBUMARTIST"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?<=authorLabel.*?>).*?(?=</li>)"
-\t\tregexpreplace "</?[^><]+>" ""
-\t\tunspace
-\t\tregexpreplace "  +" " "
-\t\tregexpreplace "^.*By:\\\\s*" ""
-\t\tregexpreplace "\\\\s*Narrated by:.*$" ""
+        # 7. %Year%
+        json_select "release_date"
+        SayNChars 4
+        Say "|"
 
-\t\toutputto "DURATION"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?<=runtimeLabel.*?bc-color-secondary\\">)[^<]+"
+        # 8. %Language%
+        json_select "language"
+        SayFormat "$caps(%_current%)"
+        SayNewLine
+    json_foreach_end
+EndIf
 
-\t\toutputto "YEAR"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?<=Release date:.*?>).*?(?=<)"
-\t\tregexpreplace ".*?(\\\\d{4}).*" "$1"
-
-\t\toutputto "LANGUAGE"
-\t\tsayoutput "_block"
-\t\tSayRegexp "(?<=languageLabel.*?>)[^<]+"
-
-\t\toutputto ""
-\t\tsayoutput "_url"
-\t\tsay "|"
-\t\tsayoutput "ALBUM"
-\t\tsay "|"
-\t\tsayoutput "ALBUMARTIST"
-\t\tsay "|"
-\t\tsayoutput "ASIN"
-\t\tsay "|"
-\t\tsayoutput "DURATION"
-\t\tsay "|"
-\t\tsayoutput "YEAR"
-\t\tsay "|"
-\t\tsayoutput "LANGUAGE"
-\t\tsaynewline
-\telse
-\t\tbreak
-\tendif
-endwhile
-
-#######################################################################
-# A L B U M
-#######################################################################
+# -------------------------------------------------------------------
+# PARSER SCRIPT: Detailed Book Metadata
+# -------------------------------------------------------------------
 [ParserScriptAlbum]
-gotoline 1
-unspace
-regexpreplace "\\s\\s+" " "
-replace "> <" "><"
+replace "|" "$verticalBar()"
+json "ON" "current"
+json_select_object "product"
 
-# ----- Title
-outputto "ALBUM"
-findline "data-test=\\"product-title\\"" 1 1
-if "data-test=\\"product-title\\""
-\tfindinline ">"
-\tsayuntil "<"
-else
-\tgotoline 1
-\tfindline "<h1" 1 1
-\tfindinline ">"
-\tsayuntil "<"
-endif
+# Cover Artwork: extracts highest resolution available (up to 2400x2400)
+OutputTo "coverurl"
+json_select_object "product_images"
+json_select "2400"
+IfNot ""
+    SayRest
+Else
+    json_select "1000"
+    IfNot ""
+        SayRest
+    Else
+        json_select "700"
+        IfNot ""
+            SayRest
+        Else
+            json_select "500"
+            SayRest
+        EndIf
+    EndIf
+EndIf
+json_unselect_object
 
-# Also set TITLE to match ALBUM
-outputto "TITLE"
-sayoutput "ALBUM"
+# ASIN
+OutputTo "ASIN"
+json_select "asin"
+SayRest
 
-# ----- Subtitle
-outputto "SUBTITLE"
-gotoline 1
-findline "data-test=\\"product-subtitle\\"" 1 1
-if "data-test=\\"product-subtitle\\""
-\tfindinline ">"
-\tsayuntil "<"
-else
-\tgotoline 1
-\tfindline "subtitleLabel" 1 1
-\tif "subtitleLabel"
-\t\tfindinline ">"
-\t\tsayuntil "<"
-\telse
-\t\tsay ""
-\tendif
-endif
+# Title & Album
+OutputTo "ALBUM"
+json_select "title"
+RegexpReplace "(.*?) \\(Narrated by .*" "$1"
+SayRest
 
-# ----- Albumartist (Authors)
-outputto "ALBUMARTIST"
-gotoline 1
-findline "authorLabel" 1 1
-if "authorLabel"
-\tmoveline 3 1
-\tjoinuntil "</li>"
-\tregexpreplace "</?[^><]+>" ""
-\tunspace
-\tregexpreplace "  +" " "
-\tregexpreplace "^.*By:\\\\s*" ""
-\tregexpreplace "\\\\s*Narrated by:.*$" ""
-\tsayrest
-else
-\tgotoline 1
-\tfindline ">By " 1 1
-\tif ">By "
-\t\tfindinline ">By "
-\t\tsayuntil "<"
-\t\tregexpreplace "\\\\s*Narrated by:.*$" ""
-\telse
-\t\tsay ""
-\tendif
-endif
+OutputTo "TITLE"
+SayOutput "ALBUM"
 
-# Standard ARTIST tag
-outputto "ARTIST"
-sayoutput "ALBUMARTIST"
+# Subtitle
+OutputTo "SUBTITLE"
+json_select "subtitle"
+SayRest
 
-# ----- ASIN
-outputto "ASIN"
-gotoline 1
-findline "data-asin=\\"" 1 1
-if "data-asin=\\""
-\tSayRegexp "(?i)(?<=data-asin=\\")[A-Z0-9]{10}"
-else
-\tgotoline 1
-\tfindline "\\"asin\\":" 1 1
-\tif "\\"asin\\":"
-\t\tSayRegexp "(?i)(?<=\\\\"asin\\\\":\\\\")[A-Z0-9]{10}"
-\telse
-\t\tsay ""
-\tendif
-endif
+# Authors / Album Artists
+OutputTo "ALBUMARTIST"
+json_foreach "authors"
+    json_select "name"
+    IfNot ""
+        IfOutput "ALBUMARTIST"
+            Say ", "
+        EndIf
+        SayRest
+    EndIf
+json_foreach_end
 
-# ----- Series & Series-Part
-outputto "SERIES"
-gotoline 1
-findline "seriesLabel" 1 1
-if "seriesLabel"
-\tmoveline 3 1
-\tjoinuntil "</li>"
-\toutputto "_seriesraw"
-\tsayrest
+OutputTo "ARTIST"
+SayOutput "ALBUMARTIST"
 
-\toutputto "SERIES"
-\tsayoutput "_seriesraw"
-\tregexpreplace "^.*?<a[^>]*>" ""
-\tregexpreplace "</a>.*$" ""
-\tregexpreplace "</?[^><]+>" ""
-\tunspace
+# Narrators / Composers (populated for both COMPOSER and NARRATOR tags)
+OutputTo "COMPOSER"
+json_foreach "narrators"
+    json_select "name"
+    IfNot ""
+        IfOutput "COMPOSER"
+            Say ", "
+        EndIf
+        SayRest
+    EndIf
+json_foreach_end
 
-\toutputto "SERIES-PART"
-\tsayoutput "_seriesraw"
-\tregexpreplace "</?[^><]+>" ""
-\tunspace
-\tSayRegexp "\\\\d+(\\\\.\\\\d+)?"
-else
-\tsay ""
-endif
+OutputTo "NARRATOR"
+SayOutput "COMPOSER"
 
-# ----- Composer & Narrator
-outputto "COMPOSER"
-gotoline 1
-findline "narratorLabel" 1 1
-if "narratorLabel"
-\tmoveline 3 1
-\tjoinuntil "</li>"
-\tregexpreplace "</?[^><]+>" ""
-\tunspace
-\tregexpreplace "  +" " "
-\tregexpreplace "^.*Narrated by:\\\\s*" ""
-\tregexpreplace "\\\\s*By:.*$" ""
-\tsayrest
-else
-\tgotoline 1
-\tfindline "Narrated by" 1 1
-\tif "Narrated by"
-\t\tjoinuntil "</li>"
-\t\tregexpreplace "</?[^><]+>" ""
-\tunspace
-\t\tregexpreplace "  +" " "
-\t\tregexpreplace "^.*Narrated by:\\\\s*" ""
-\t\tregexpreplace "\\\\s*By:.*$" ""
-\tsayrest
-\telse
-\t\tsay ""
-\tendif
-endif
+# Series, Book Number & Movement Sorting
+json_select_many_count "series"
+IfNot ""
+    OutputTo "SERIES"
+    json_select_array "series" 1
+    json_select "title"
+    SayRest
+    OutputTo "SERIES-PART"
+    json_select "sequence"
+    SayRest
+    json_unselect_object
 
-outputto "NARRATOR"
-sayoutput "COMPOSER"
+    OutputTo "SHOWMOVEMENT"
+    Say "1"
+    OutputTo "MOVEMENTNAME"
+    SayOutput "SERIES"
+    OutputTo "MOVEMENT"
+    SayOutput "SERIES-PART"
 
-# ----- Genres / Categories
-outputto "GENRE"
-gotoline 1
-findline "categoriesLabel" 1 1
-if "categoriesLabel"
-\tmoveline 3 1
-\tjoinuntil "</li>"
-\tregexpreplace "</?[^><]+>" ", "
-\tregexpreplace "^.*Categories:\\\\s*" ""
-\tregexpreplace "^\\\\s*,\\\\s*" ""
-\tregexpreplace "\\\\s*,\\\\s*$" ""
-\tregexpreplace "\\\\s*,(\\\\s*,)+" ", "
-\tunspace
-\tsayrest
-else
-\tsay ""
-endif
+    OutputTo "CONTENTGROUP"
+    SayOutput "SERIES"
+    IfOutput "SERIES-PART"
+        Say ", Book #"
+        SayOutput "SERIES-PART"
+    EndIf
 
-# ----- Cover Image (upgrade to full resolution)
-outputto "COVERURL"
-gotoline 1
-findline "data-test=\\"hero-image\\"" 1 1
-if "data-test=\\"hero-image\\""
-\tfindinline "src=\\""
-\tmovechar 5
-\tsayuntil "\\""
-else
-\tgotoline 1
-\tfindline "property=\\"og:image\\"" 1 1
-\tif "property=\\"og:image\\""
-\t\tfindinline "content=\\""
-\t\tmovechar 9
-\tsayuntil "\\""
-\telse
-\t\tsay ""
-\tendif
-endif
-regexpreplace "\\\\._S[SL]\\\\d+_\\\\." "."
+    OutputTo "ALBUMSORT"
+    SayOutput "SERIES"
+    IfOutput "SERIES-PART"
+        Say " "
+        SayOutput "SERIES-PART"
+    EndIf
+    Say " - "
+    SayOutput "ALBUM"
+Else
+    IfNotOutput "SUBTITLE"
+        OutputTo "ALBUMSORT"
+        SayOutput "ALBUM"
+    Else
+        OutputTo "ALBUMSORT"
+        SayOutput "ALBUM"
+        Say " - "
+        SayOutput "SUBTITLE"
+    EndIf
+EndIf
 
-# ----- Year
-outputto "YEAR"
-gotoline 1
-findline "Release date:" 1 1
-if "Release date:"
-\tfindinline ">"
-\tSayRegexp "\\\\d{4}"
-else
-\tgotoline 1
-\tfindline "datePublished" 1 1
-\tif "datePublished"
-\t\tSayRegexp "\\\\d{4}"
-\telse
-\t\tsay ""
-\tendif
-endif
+# Genres & Categories (Category Ladders)
+OutputTo "GENRE"
+json_foreach "category_ladders"
+    IfOutput "GENRE"
+        Say ", "
+    EndIf
+    json_select_many "ladder" "name" " / "
+    SayRest
+json_foreach_end
 
-# ----- ISBN
-outputto "ISBN"
-gotoline 1
-findline "\\"isbn\\":" 1 1
-if "\\"isbn\\":"
-\tSayRegexp "(?<=\\\\"isbn\\\\":\\\\")[0-9X-]+"
-else
-\tgotoline 1
-\tfindline "ISBN:" 1 1
-\tif "ISBN:"
-\t\tSayRegexp "[0-9]{13}|[0-9]{10}"
-\telse
-\t\tsay ""
-\tendif
-endif
+# Rating (Audible community rating)
+OutputTo "RATING"
+json_select_object "rating"
+json_select_object "overall_distribution"
+json_select "display_average_rating"
+SayRest
+json_unselect_object
+json_unselect_object
 
-# ----- Language
-outputto "LANGUAGE"
-gotoline 1
-findline "languageLabel" 1 1
-if "languageLabel"
-\tmoveline 3 1
-\tfindinline ">"
-\tsayuntil "<"
-else
-\tsay ""
-endif
+OutputTo "RATING WMP"
+SayOutput "RATING"
 
-# ----- Publisher
-outputto "PUBLISHER"
-gotoline 1
-findline "publisherLabel" 1 1
-if "publisherLabel"
-\tmoveline 3 1
-\tfindinline ">"
-\tsayuntil "<"
-else
-\tgotoline 1
-\tfindline "©" 1 1
-\tif "©"
-\t\tmovechar 3
-\t\tsayuntil "<"
-\telse
-\t\tsay ""
-\tendif
-endif
+# Description & Summary (Strips HTML tags and normalizes spaces)
+OutputTo "COMMENT"
+json_select "publisher_summary"
+KillTag "*"
+Unspace
+RegexpReplace "  +" " "
+Replace " ," ","
+SayRest
 
-# ----- Description / Summary
-outputto "COMMENT"
-gotoline 1
-findline "Publisher's Summary" 1 1
-if "Publisher's Summary"
-\tfindline "<span" 1 1
-\tjoinuntil "</span>"
-\tregexpreplace "</?[^><]+>" ""
-\tunspace
-\tregexpreplace "  +" " "
-\tsayrest
-else
-\tgotoline 1
-\tfindline "name=\\"description\\"" 1 1
-\tif "name=\\"description\\""
-\t\tfindinline "content=\\""
-\t\tmovechar 9
-\t\tsayuntil "\\""
-\telse
-\t\tsay ""
-\tendif
-endif
+OutputTo "DESCRIPTION"
+SayOutput "COMMENT"
 
-outputto "DESCRIPTION"
-sayoutput "COMMENT"
+# Publisher
+OutputTo "PUBLISHER"
+json_select "publisher_name"
+SayRest
 
-# ----- Rating (rough)
-outputto "RATING WMP"
-gotoline 1
-findline "aria-label=\\"Rating\\"" 1 1
-if "aria-label=\\"Rating\\""
-\tfindinline ">"
-\tSayRegexp "\\\\d(\\\\.\\\\d)?"
-else
-\tsay "0.0"
-endif
+# Year & Release Date
+OutputTo "YEAR"
+json_select "release_date"
+SayNChars 4
 
-# ----- iTunes Audiobook Flags
-outputto "ITUNESMEDIATYPE"
-say "Audiobook"
-outputto "ITUNESGAPLESS"
-say "1"`;
+OutputTo "RELEASETIME"
+json_select "release_date"
+SayRest
+
+# ISBN
+OutputTo "ISBN"
+json_select "isbn"
+SayRest
+
+# Format (Unabridged, Abridged, Original Recording)
+OutputTo "FORMAT"
+json_select "format_type"
+SayFormat "$caps(%_current%)"
+
+# Language
+OutputTo "LANGUAGE"
+json_select "language"
+SayFormat "$caps(%_current%)"
+
+# Copyright
+OutputTo "COPYRIGHT"
+json_select "copyright"
+SayRest
+
+# Apple Books & iTunes standard tags
+OutputTo "ITUNESMEDIATYPE"
+Say "Audiobook"
+
+OutputTo "ITUNESGAPLESS"
+Say "1"
+
+# Web Product URLs
+OutputTo "WWWAUDIOFILE"
+Say "https://www.audible.com/pd/"
+SayOutput "ASIN"
+
+OutputTo "WWW"
+SayOutput "WWWAUDIOFILE"
+
+json_unselect_object
+json "OFF"
+`;

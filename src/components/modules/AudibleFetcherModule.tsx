@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { AudibleFetcherState, AudibleBookResult, ModuleId } from '../../types';
 import { useToast } from '../../context/ToastContext';
-import { MP3TAG_SRC_CODE } from './mp3tagScript';
 import {
   Search,
   BookOpen,
@@ -13,7 +12,6 @@ import {
   Calendar,
   Sparkles,
   ExternalLink,
-  Code,
   FileText,
   Bookmark,
   ChevronDown,
@@ -22,7 +20,6 @@ import {
   Info,
   Layers,
   AlertCircle,
-  Download,
 } from 'lucide-react';
 
 interface AudibleFetcherModuleProps {
@@ -46,10 +43,10 @@ const REGION_OPTIONS = [
 ];
 
 const PRESET_SEARCHES = [
-  { title: 'Project Hail Mary', author: 'Andy Weir' },
-  { title: 'Dune', author: 'Frank Herbert' },
-  { title: 'Atomic Habits', author: 'James Clear' },
-  { title: 'The Hobbit', author: 'J.R.R. Tolkien' },
+  { title: 'God Delusion', author: 'Richard Dawkins' },
+  { title: 'Guns, Germs and Steel', author: 'Jared Diamond' },
+  { title: 'The Holographic Universe', author: 'Michael Talbot' },
+  { title: 'The Invention of Yesterday', author: 'Tamim Ansary' },
 ];
 
 export const AudibleFetcherModule: React.FC<AudibleFetcherModuleProps> = ({
@@ -66,8 +63,6 @@ export const AudibleFetcherModule: React.FC<AudibleFetcherModuleProps> = ({
   const [copiedAllJson, setCopiedAllJson] = useState(false);
   const [copiedAllText, setCopiedAllText] = useState(false);
   const [expandedDescIdx, setExpandedDescIdx] = useState<number | null>(null);
-  const [showCodeViewer, setShowCodeViewer] = useState(false);
-  const [copiedCode, setCopiedCode] = useState(false);
   const [showMp3tagViewer, setShowMp3tagViewer] = useState(false);
   const [copiedMp3tagScript, setCopiedMp3tagScript] = useState(false);
 
@@ -273,89 +268,6 @@ export const AudibleFetcherModule: React.FC<AudibleFetcherModuleProps> = ({
     setTimeout(() => setCopiedAllJson(false), 2000);
   };
 
-  const handleCopyStandaloneCode = () => {
-    const code = `/**
- * Attribution: Derived from Audiobookshelf (advplyr/audiobookshelf) - GPL-3.0 License
- * Repo: https://github.com/advplyr/audiobookshelf
- */
-const axios = require('axios').default;
-
-const REGION_MAP = {
-  us: '.com', ca: '.ca', uk: '.co.uk', au: '.com.au',
-  fr: '.fr', de: '.de', jp: '.co.jp', it: '.it', in: '.in', es: '.es'
-};
-
-function cleanSeriesSequence(seriesName, sequence) {
-  if (!sequence) return '';
-  const num = sequence.match(/\\.\\d+|\\d+(?:\\.\\d+)?/);
-  return num ? num[0] : sequence;
-}
-
-function cleanResult(item) {
-  if (!item) return null;
-  const { title, subtitle, asin, authors, narrators, publisherName, summary, releaseDate, image, genres, seriesPrimary, seriesSecondary, language, runtimeLengthMin, formatType, isbn } = item;
-  const series = [];
-  if (seriesPrimary?.name) series.push({ series: seriesPrimary.name, sequence: cleanSeriesSequence(seriesPrimary.name, seriesPrimary.position || '') });
-  if (seriesSecondary?.name) series.push({ series: seriesSecondary.name, sequence: cleanSeriesSequence(seriesSecondary.name, seriesSecondary.position || '') });
-  const genresCleaned = Array.isArray(genres) ? [...new Set(genres.filter(g => g?.type === 'genre').map(g => g.name))] : null;
-  const tagsCleaned = Array.isArray(genres) ? [...new Set(genres.filter(g => g?.type === 'tag').map(g => g.name))] : null;
-  const duration = Number(runtimeLengthMin);
-
-  return {
-    title: title || '',
-    subtitle: subtitle || null,
-    author: authors ? authors.map(a => a.name).join(', ') : null,
-    narrator: narrators ? narrators.map(n => n.name).join(', ') : null,
-    publisher: publisherName || null,
-    publishedYear: releaseDate ? releaseDate.split('-')[0] : null,
-    description: summary || null,
-    cover: image || null,
-    asin: asin || null,
-    isbn: isbn || null,
-    genres: genresCleaned?.length ? genresCleaned : null,
-    tags: tagsCleaned?.length ? tagsCleaned : null,
-    series: series.length ? series : null,
-    language: language ? language.charAt(0).toUpperCase() + language.slice(1) : null,
-    duration: !isNaN(duration) ? duration : 0,
-    region: item.region || null,
-    rating: item.rating || null,
-    abridged: formatType === 'abridged'
-  };
-}
-
-async function fetchBookDetails({ title, author, region = 'us', timeout = 10000 }) {
-  if (!title || !title.trim()) return [];
-  const tld = REGION_MAP[region.toLowerCase()] || '.com';
-  try {
-    const query = new URLSearchParams({ num_results: '10', products_sort_by: 'Relevance', title: title.trim() });
-    if (author?.trim()) query.append('author', author.trim());
-    const res = await axios.get(\`https://api.audible\${tld}/1.0/catalog/products?\${query}\`, { timeout });
-    const products = res?.data?.products || [];
-    const books = await Promise.all(products.filter(p => p?.asin).map(async p => {
-      try {
-        const audnex = await axios.get(\`https://api.audnex.us/books/\${encodeURIComponent(p.asin.toUpperCase())}?region=\${region}\`, { timeout });
-        return audnex?.data?.asin ? audnex.data : null;
-      } catch { return null; }
-    }));
-    return books.filter(Boolean).map(cleanResult).filter(b => b?.title);
-  } catch {
-    return [];
-  }
-}
-
-module.exports = { fetchBookDetails };`;
-
-    navigator.clipboard.writeText(code);
-    setCopiedCode(true);
-    showToast({
-      type: 'success',
-      title: 'Code Copied',
-      message: 'Standalone fetchBookDetails Node.js code copied to clipboard.',
-      duration: 3500,
-    });
-    setTimeout(() => setCopiedCode(false), 2000);
-  };
-
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       {/* Module Banner / Header */}
@@ -394,69 +306,7 @@ module.exports = { fetchBookDetails };`;
               </p>
             </div>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowCodeViewer(!showCodeViewer)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium border transition-colors self-start sm:self-auto ${
-              isDarkMode
-                ? 'bg-[#222222] border-[#333333] text-neutral-300 hover:bg-[#282828]'
-                : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-700 hover:bg-[#e4e4e7]'
-            }`}
-          >
-            <Code className="w-3.5 h-3.5" />
-            <span>{showCodeViewer ? 'Hide Standalone Code' : 'View Standalone Node.js Code'}</span>
-          </button>
         </div>
-
-        {/* Expandable Standalone Code Panel */}
-        {showCodeViewer && (
-          <div
-            className={`mt-4 pt-4 border-t ${
-              isDarkMode ? 'border-[#262626]' : 'border-[#eeeeee]'
-            }`}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="font-semibold">Standalone Module (fetchBookDetails.js)</span>
-                <span className={isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}>
-                  • GPL-3.0 advplyr/audiobookshelf attribution included
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCopyStandaloneCode}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium border transition-colors ${
-                  copiedCode
-                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                    : isDarkMode
-                    ? 'bg-[#242424] border-[#383838] text-neutral-300 hover:bg-[#2c2c2c]'
-                    : 'bg-white border-[#d4d4d8] text-neutral-700 hover:bg-[#f4f4f5]'
-                }`}
-              >
-                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedCode ? 'Copied Module!' : 'Copy Code'}</span>
-              </button>
-            </div>
-            <pre
-              className={`text-[11px] font-mono p-3 rounded overflow-x-auto max-h-56 leading-snug border ${
-                isDarkMode
-                  ? 'bg-[#111111] border-[#222222] text-[#cccccc]'
-                  : 'bg-neutral-50 border-neutral-200 text-neutral-800'
-              }`}
-            >
-              {`// Usage in any Node.js project:
-const { fetchBookDetails } = require('./audibleFetcher');
-
-const books = await fetchBookDetails({
-  title: 'Project Hail Mary',
-  author: 'Andy Weir',
-  region: 'us',
-  timeout: 10000
-});`}
-            </pre>
-          </div>
-        )}
       </div>
 
       {/* Search Input Controls */}
@@ -576,6 +426,7 @@ const books = await fetchBookDetails({
               <button
                 key={preset.title}
                 type="button"
+                title={`${preset.title} by ${preset.author}`}
                 onClick={() => {
                   onChange((prev) => ({
                     ...prev,
@@ -726,14 +577,16 @@ const books = await fetchBookDetails({
                   >
                     <div className="flex flex-col sm:flex-row gap-5">
                       {/* Cover Thumbnail & Image Link Copy */}
-                      <div className="shrink-0 flex sm:flex-col items-center gap-2 w-24 sm:w-28">
+                      <div className="shrink-0 flex sm:flex-col items-center gap-2 w-24 sm:w-28 relative">
                         {book.cover ? (
-                          <img
-                            src={book.cover}
-                            alt={book.title}
-                            referrerPolicy="no-referrer"
-                            className="w-24 h-24 sm:w-28 sm:h-28 object-cover rounded shadow-md border border-black/10"
-                          />
+                          <div className="relative group/cover z-10 hover:z-50">
+                            <img
+                              src={book.cover}
+                              alt={book.title}
+                              referrerPolicy="no-referrer"
+                              className="w-24 h-24 sm:w-28 sm:h-28 object-cover rounded shadow-md border border-black/10 transition-transform duration-300 ease-out hover:scale-[2.1] hover:shadow-2xl hover:rounded-md origin-top-left cursor-zoom-in"
+                            />
+                          </div>
                         ) : (
                           <div
                             className={`w-24 h-24 sm:w-28 sm:h-28 rounded flex flex-col items-center justify-center border ${
@@ -1193,32 +1046,6 @@ const books = await fetchBookDetails({
                               >
                                 <Send className="w-3.5 h-3.5" />
                                 <span>Send to Audiobook Transcriber</span>
-                              </button>
-                            )}
-
-                            {book.cover && (
-                              <button
-                                type="button"
-                                onClick={() => handleCopyField(`${index}-cover`, 'Image Link', book.cover)}
-                                className={`flex items-center gap-1 px-2.5 py-1.5 rounded text-xs border transition-colors ${
-                                  copiedFieldKey === `${index}-cover`
-                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                                    : isDarkMode
-                                    ? 'bg-[#202020] border-[#333333] text-neutral-300 hover:text-white'
-                                    : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-700 hover:text-black'
-                                }`}
-                              >
-                                {copiedFieldKey === `${index}-cover` ? (
-                                  <>
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                    <span>Image Link Copied</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3 h-3 opacity-60" />
-                                    <span>Copy Image Link</span>
-                                  </>
-                                )}
                               </button>
                             )}
 

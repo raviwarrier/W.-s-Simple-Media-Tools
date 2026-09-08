@@ -18,7 +18,7 @@ import {
 import { getInitialCostState, addCostRecord } from './utils/costEstimator';
 import { Sidebar } from './components/Sidebar';
 import { HeaderBar } from './components/HeaderBar';
-import { ZeroRetentionBanner } from './components/ZeroRetentionBanner';
+import { TopHeader } from './components/TopHeader';
 import { TaskDrawer } from './components/TaskDrawer';
 import { VideoTranscriberModule } from './components/modules/VideoTranscriberModule';
 import { MediaClipperModule } from './components/modules/MediaClipperModule';
@@ -44,6 +44,7 @@ function AppContent() {
   const [currentModule, setCurrentModule] = useState<ModuleId>('video-transcriber');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Encrypted Secret Store & Key Management
   const [secretStore, setSecretStore] = useState<SecretStore>(getInitialSecretStore);
@@ -407,48 +408,51 @@ function AppContent() {
 
   return (
     <div
-      className={`min-h-screen flex font-mono antialiased transition-colors ${
+      className={`min-h-screen flex flex-col font-mono antialiased transition-colors ${
         isDarkMode ? 'bg-[#121212] text-[#e0e0e0]' : 'bg-[#f8f9fa] text-[#1a1a1a]'
       }`}
     >
-      {/* Sidebar Navigation */}
-      <Sidebar
-        currentModule={currentModule}
-        onSelectModule={setCurrentModule}
-        secretStore={secretStore}
-        costTracker={costTracker}
+      {/* Top Static Header (Logo, App Name, Version, Tasks, Light/Dark toggle) */}
+      <TopHeader
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         activeTasksCount={activeTasksCount}
         onOpenTaskDrawer={() => setIsTaskDrawerOpen(true)}
-        onPurgeMemory={handlePurgeMemory}
         isDarkMode={isDarkMode}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header Bar */}
-        <HeaderBar
+      {/* Main Body (Sidebar + Content) */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Collapsible Sidebar Navigation */}
+        <Sidebar
           currentModule={currentModule}
+          onSelectModule={setCurrentModule}
+          secretStore={secretStore}
+          costTracker={costTracker}
           activeTasksCount={activeTasksCount}
           onOpenTaskDrawer={() => setIsTaskDrawerOpen(true)}
-          totalCostUSD={totalCost}
-          budgetLimitUSD={costTracker.budgetLimitUSD}
-          memoryUsageBytes={memoryUsageBytes}
           onPurgeMemory={handlePurgeMemory}
           isDarkMode={isDarkMode}
-          onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
-          secretStore={secretStore}
-          onNavigateToSettings={(mod) => setCurrentModule(mod)}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
-        {/* Zero Retention Notification Strip */}
-        <ZeroRetentionBanner
-          memoryUsageBytes={memoryUsageBytes}
-          onPurge={handlePurgeMemory}
-          isDarkMode={isDarkMode}
-        />
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Module Header Bar (Module Title, Desc, Key Status Pill, Cost Pill, Buffer Pill) */}
+          <HeaderBar
+            currentModule={currentModule}
+            memoryUsageBytes={memoryUsageBytes}
+            onPurgeMemory={handlePurgeMemory}
+            isDarkMode={isDarkMode}
+            secretStore={secretStore}
+            costTracker={costTracker}
+            onNavigateToSettings={(mod) => setCurrentModule(mod)}
+          />
 
-        {/* Active Module View */}
-        <main className="flex-1 overflow-y-auto">
+          {/* Active Module View */}
+          <main className="flex-1 overflow-y-auto">
           {currentModule === 'video-transcriber' && (
             <VideoTranscriberModule
               state={videoTranscriberState}
@@ -563,6 +567,7 @@ function AppContent() {
           )}
         </main>
       </div>
+    </div>
 
       {/* Slide-out Background Task Drawer */}
       <TaskDrawer

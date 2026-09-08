@@ -1,33 +1,24 @@
 import React from 'react';
-import { ModuleId, SecretStore } from '../types';
-import { AppLogo } from './AppLogo';
+import { ModuleId, SecretStore, CostTrackerState } from '../types';
 import {
-  Sun,
-  Moon,
-  Layers,
-  DollarSign,
-  Activity,
   HardDrive,
   Key,
+  DollarSign,
 } from 'lucide-react';
 
 interface HeaderBarProps {
   currentModule: ModuleId;
-  activeTasksCount: number;
-  onOpenTaskDrawer: () => void;
-  totalCostUSD: number;
-  budgetLimitUSD: number;
   memoryUsageBytes: number;
   onPurgeMemory?: () => void;
   isDarkMode: boolean;
-  onToggleDarkMode: () => void;
   secretStore?: SecretStore;
+  costTracker?: CostTrackerState;
   onNavigateToSettings?: (module: ModuleId) => void;
 }
 
 const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> = {
   'video-transcriber': {
-    title: "W.'s Video Transcription Tool",
+    title: 'Video Transcription Tool',
     desc: 'Whisper chunked transcription & OpenAI GPT-4o-mini summarization',
   },
   'media-clipper': {
@@ -35,7 +26,7 @@ const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> =
     desc: 'Exact timestamp clipping for audio (.mp3) and video (.mp4) files',
   },
   'audiobook-transcriber': {
-    title: "W.'s Audiobook Snippet Transcriber",
+    title: 'Audiobook Snippet Transcriber',
     desc: 'Audiobook range extraction with ffprobe metadata tags & Whisper',
   },
   'audible-fetcher': {
@@ -43,7 +34,7 @@ const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> =
     desc: 'Audible Catalog API & Audnex metadata lookup (adapted from Audiobookshelf GPL-3.0)',
   },
   'secrets-settings': {
-    title: 'Encrypted Secrets Vault & Providers',
+    title: 'Encrypted Secrets Vault',
     desc: 'AES-GCM key management and unified vs per-module token policy',
   },
   'cost-analytics': {
@@ -51,22 +42,18 @@ const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> =
     desc: 'Real-time expenditure tracking per module and budget enforcement',
   },
   'code-environment': {
-    title: 'Combined Environment & Setup',
+    title: 'Environment & Setup',
     desc: 'Unified requirements.txt, setup instructions, and code inspector',
   },
 };
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
   currentModule,
-  activeTasksCount,
-  onOpenTaskDrawer,
-  totalCostUSD,
-  budgetLimitUSD,
   memoryUsageBytes,
   onPurgeMemory,
   isDarkMode,
-  onToggleDarkMode,
   secretStore,
+  costTracker,
   onNavigateToSettings,
 }) => {
   const meta = MODULE_NAMES[currentModule] || {
@@ -74,8 +61,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     desc: 'Media processing suite',
   };
 
+  // Compute cost and operations count for current module
+  const moduleCostStats = (costTracker?.records || [])
+    .filter((r) => r.moduleId === currentModule)
+    .reduce(
+      (acc, r) => ({
+        costUSD: acc.costUSD + r.costUSD,
+        runs: acc.runs + 1,
+      }),
+      { costUSD: 0, runs: 0 }
+    );
+
   // Determine API key status for the active module
-  // User Rule: "if key not set, show 'not set' with a clickable flow to the relevant settings section, if key not required, show 'not required', if key set, show 'set'."
   let keyStatus: 'not-required' | 'set' | 'not-set' = 'not-required';
   if (currentModule === 'video-transcriber') {
     const activeKey =
@@ -112,31 +109,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   };
 
   return (
-    <header
+    <div
       id="header-bar"
-      className={`h-14 px-5 border-b flex items-center justify-between transition-colors z-10 select-none ${
+      className={`h-14 px-5 border-b flex items-center justify-between transition-colors z-10 select-none shrink-0 ${
         isDarkMode
           ? 'bg-[#121212] border-[#262626] text-[#f2f2f2]'
           : 'bg-[#ffffff] border-[#e5e5e5] text-[#121212]'
       }`}
     >
-      {/* Title & Description */}
+      {/* Title & Description (without redundant version number) */}
       <div className="flex items-center gap-2.5 min-w-0">
-        <AppLogo isDarkMode={isDarkMode} className="w-6 h-6 sm:hidden shrink-0" />
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold tracking-tight truncate">{meta.title}</h2>
-            <span
-              id="header-version-badge"
-              className={`text-[10px] font-mono px-1.5 py-0.2 rounded border hidden sm:inline-block font-semibold ${
-                isDarkMode
-                  ? 'bg-[#1a1a1a] border-[#2e2e2e] text-[#f3e79a]'
-                  : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
-              }`}
-            >
-              v1.5
-            </span>
-          </div>
+          <h2 className="text-sm font-semibold tracking-tight truncate">{meta.title}</h2>
           <p
             className={`text-xs hidden sm:block truncate mt-0.5 ${
               isDarkMode ? 'text-[#8c8c8c]' : 'text-[#666666]'
@@ -147,7 +131,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         </div>
       </div>
 
-      {/* Right Controls */}
+      {/* Right Controls: Key Status & Buffer Size */}
       <div className="flex items-center gap-2.5 shrink-0">
         {/* Key Status Pill */}
         {keyStatus === 'not-required' ? (
@@ -195,7 +179,26 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           </button>
         )}
 
-        {/* Buffer Used Size Indicator */}
+        {/* Module Cost Pill */}
+        <button
+          type="button"
+          id="btn-header-module-cost"
+          onClick={() => onNavigateToSettings?.('cost-analytics')}
+          title={`Module cost: $${moduleCostStats.costUSD.toFixed(4)} across ${moduleCostStats.runs} operations. Click to view detailed cost analytics.`}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-mono cursor-pointer transition-colors ${
+            isDarkMode
+              ? 'bg-[#1a1a1a] hover:bg-[#252525] border-[#2e2e2e] text-[#f3e79a]'
+              : 'bg-[#f8f8f8] hover:bg-[#f0f0f0] border-[#e0e0e0] text-[#854d0e] font-semibold'
+          }`}
+        >
+          <DollarSign className="w-3.5 h-3.5" />
+          <span>${moduleCostStats.costUSD.toFixed(4)}</span>
+          <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>
+            ({moduleCostStats.runs})
+          </span>
+        </button>
+
+        {/* Buffer Used Size Indicator (Preserved as requested: "one as a pill on the module header") */}
         <div
           title={`Active in-memory file buffer: ${formatBytes(memoryUsageBytes)}. Cleared when new task runs or window closes.`}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-mono transition-colors ${
@@ -210,7 +213,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <button
               onClick={onPurgeMemory}
               title="Clear buffer manually"
-              className={`ml-1 text-[11px] underline hover:no-underline ${
+              className={`ml-1 text-[11px] underline hover:no-underline font-semibold ${
                 isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'
               }`}
             >
@@ -218,56 +221,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </button>
           )}
         </div>
-
-        {/* Background Tasks Drawer Trigger */}
-        <button
-          onClick={onOpenTaskDrawer}
-          id="btn-header-task-drawer"
-          title="Open Background Tasks Manager"
-          className={`relative flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-medium transition-all ${
-            activeTasksCount > 0
-              ? isDarkMode
-                ? 'bg-[#f3e79a]/15 border-[#f3e79a] text-[#f3e79a]'
-                : 'bg-[#ffd600]/25 border-[#ffd600] text-neutral-900 font-semibold'
-              : isDarkMode
-              ? 'bg-[#1a1a1a] border-[#2e2e2e] text-[#cccccc] hover:bg-[#252525]'
-              : 'bg-[#ffffff] border-[#e0e0e0] text-[#222222] hover:bg-[#f4f4f4]'
-          }`}
-        >
-          <Activity
-            className={`w-3.5 h-3.5 ${
-              activeTasksCount > 0
-                ? isDarkMode ? 'animate-spin text-[#f3e79a]' : 'animate-spin text-[#ca8a04]'
-                : 'text-[#888888]'
-            }`}
-          />
-          <span className="hidden sm:inline">Tasks</span>
-          {activeTasksCount > 0 && (
-            <span
-              className={`w-4 h-4 rounded-full text-[11px] font-bold flex items-center justify-center font-mono ${
-                isDarkMode ? 'bg-[#f3e79a] text-neutral-950' : 'bg-[#ffd600] text-neutral-950'
-              }`}
-            >
-              {activeTasksCount}
-            </span>
-          )}
-        </button>
-
-        {/* Theme Toggle */}
-        <button
-          onClick={onToggleDarkMode}
-          id="btn-theme-toggle"
-          title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          className={`p-1.5 rounded border transition-colors ${
-            isDarkMode
-              ? 'bg-[#1a1a1a] border-[#2e2e2e] text-[#cccccc] hover:text-white hover:bg-[#252525]'
-              : 'bg-[#ffffff] border-[#e0e0e0] text-[#444444] hover:text-[#111111] hover:bg-[#f4f4f4]'
-          }`}
-        >
-          {isDarkMode ? <Sun className="w-4 h-4 text-[#f3e79a]" /> : <Moon className="w-4 h-4 text-[#222222]" />}
-        </button>
       </div>
-    </header>
+    </div>
   );
 };
-

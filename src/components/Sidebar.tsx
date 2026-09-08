@@ -1,15 +1,15 @@
 import React from 'react';
 import { ModuleId, SecretStore, CostTrackerState } from '../types';
-import { AppLogo } from './AppLogo';
 import {
   Video,
   Scissors,
   BookOpen,
   DollarSign,
-  Activity,
   Key,
-  Trash2,
   Headphones,
+  ChevronLeft,
+  ChevronRight,
+  TrendingUp,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -21,6 +21,8 @@ interface SidebarProps {
   onOpenTaskDrawer: () => void;
   onPurgeMemory: () => void;
   isDarkMode: boolean;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -32,37 +34,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenTaskDrawer,
   onPurgeMemory,
   isDarkMode,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
   const navItems: { id: ModuleId; label: string; icon: React.ReactNode; badge?: string }[] = [
     {
       id: 'video-transcriber',
-      label: 'Video Transcription',
-      icon: <Video className="w-4 h-4" />,
+      label: 'Video Transcriber',
+      icon: <Video className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'media-clipper',
       label: 'Audio/Video Clipper',
-      icon: <Scissors className="w-4 h-4" />,
+      icon: <Scissors className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'audiobook-transcriber',
       label: 'Audiobook Transcriber',
-      icon: <BookOpen className="w-4 h-4" />,
+      icon: <BookOpen className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'audible-fetcher',
       label: 'Audible Fetcher',
-      icon: <Headphones className="w-4 h-4" />,
+      icon: <Headphones className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'secrets-settings',
       label: 'Encrypted Secrets',
-      icon: <Key className="w-4 h-4" />,
+      icon: <Key className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'cost-analytics',
       label: 'Costs & Budget',
-      icon: <DollarSign className="w-4 h-4" />,
+      icon: <DollarSign className="w-4 h-4 shrink-0" />,
     },
   ];
 
@@ -72,39 +76,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       id="streamlit-sidebar"
-      className={`w-64 flex-shrink-0 flex flex-col border-r transition-colors duration-150 z-20 select-none ${
+      className={`flex-shrink-0 flex flex-col border-r transition-all duration-200 z-20 select-none ${
+        isCollapsed ? 'w-16' : 'w-64'
+      } ${
         isDarkMode
           ? 'bg-[#141414] border-[#262626] text-[#e5e5e5]'
           : 'bg-[#fafafa] border-[#e5e5e5] text-[#1a1a1a]'
       }`}
     >
-      {/* Brand Header */}
-      <div className="p-4 border-b border-inherit">
-        <div className="flex items-center gap-2.5">
-          <AppLogo isDarkMode={isDarkMode} className="w-7 h-7" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h1 className="text-xs font-semibold tracking-tight truncate">W.&apos;s Simple Media Tools</h1>
-              <span
-                id="badge-app-version"
-                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border font-semibold shrink-0 ${
-                  isDarkMode
-                    ? 'bg-[#1e1e1e] border-[#333333] text-[#f3e79a]'
-                    : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800'
-                }`}
-              >
-                v1.5
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Sidebar Collapse Toggle Header */}
+      <div className={`p-2.5 border-b border-inherit flex items-center ${isCollapsed ? 'justify-center' : 'justify-between px-3'}`}>
+        {!isCollapsed && (
+          <span className={`text-[11px] font-medium uppercase tracking-wider ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+            Navigation
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`p-1.5 rounded border transition-colors ${
+            isDarkMode
+              ? 'bg-[#1f1f1f] border-[#303030] text-[#aaaaaa] hover:text-white hover:bg-[#282828]'
+              : 'bg-[#f0f0f0] border-[#d8d8d8] text-[#555555] hover:text-[#111111] hover:bg-[#e4e4e7]'
+          }`}
+        >
+          {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
       {/* Navigation List */}
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
-        <p className={`px-2 text-xs font-medium uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
-          Functional Modules
-        </p>
+      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+        {!isCollapsed && (
+          <p className={`px-2 text-[11px] font-medium uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+            Functional Modules
+          </p>
+        )}
 
         {navItems.slice(0, 4).map((item) => {
           const isActive = currentModule === item.id;
@@ -113,7 +120,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               key={item.id}
               id={`nav-${item.id}`}
               onClick={() => onSelectModule(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-all ${
+              title={isCollapsed ? item.label : undefined}
+              className={`w-full flex items-center rounded text-xs font-medium transition-all ${
+                isCollapsed ? 'justify-center p-2.5 my-1' : 'justify-between px-3 py-2'
+              } ${
                 isActive
                   ? isDarkMode
                     ? 'bg-[#222222] text-[#f3e79a] border border-[#383838]'
@@ -123,20 +133,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-[#555555] hover:text-[#111111] hover:bg-[#f0f0f0] border border-transparent'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
                 <span className={isActive ? (isDarkMode ? 'text-[#f3e79a]' : 'text-[#ca8a04]') : 'text-[#888888]'}>
                   {item.icon}
                 </span>
-                <span>{item.label}</span>
+                {!isCollapsed && <span className="truncate">{item.label}</span>}
               </div>
             </button>
           );
         })}
 
-        <div className="pt-3">
-          <p className={`px-2 text-xs font-medium uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
-            Settings & Operations
-          </p>
+        <div className={`pt-2 ${isCollapsed ? 'border-t border-inherit my-2 pt-2' : ''}`}>
+          {!isCollapsed && (
+            <p className={`px-2 text-[11px] font-medium uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-[#777777]' : 'text-[#888888]'}`}>
+              Settings & Operations
+            </p>
+          )}
 
           {navItems.slice(4).map((item) => {
             const isActive = currentModule === item.id;
@@ -145,7 +157,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 key={item.id}
                 id={`nav-${item.id}`}
                 onClick={() => onSelectModule(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded text-xs font-medium transition-all ${
+                title={isCollapsed ? item.label : undefined}
+                className={`w-full flex items-center rounded text-xs font-medium transition-all ${
+                  isCollapsed ? 'justify-center p-2.5 my-1' : 'justify-between px-3 py-2'
+                } ${
                   isActive
                     ? isDarkMode
                       ? 'bg-[#222222] text-[#f3e79a] border border-[#383838]'
@@ -155,91 +170,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : 'text-[#555555] hover:text-[#111111] hover:bg-[#f0f0f0] border border-transparent'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
                   <span className={isActive ? (isDarkMode ? 'text-[#f3e79a]' : 'text-[#ca8a04]') : 'text-[#888888]'}>
                     {item.icon}
                   </span>
-                  <span>{item.label}</span>
+                  {!isCollapsed && <span className="truncate">{item.label}</span>}
                 </div>
-                {item.badge && (
-                  <span
-                    className={`text-[11px] px-1.5 py-0.2 rounded border font-mono ${
-                      isDarkMode
-                        ? 'bg-[#1c1c1c] text-[#cccccc] border-[#333333]'
-                        : 'bg-[#f0f0f0] text-[#333333] border-[#d8d8d8]'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Bottom Status & Budget Widget */}
-      <div className="p-3 border-t border-inherit space-y-2">
-        {/* Background Tasks Bar */}
-        <button
-          onClick={onOpenTaskDrawer}
-          id="btn-background-tasks-sidebar"
-          className={`w-full flex items-center justify-between px-3 py-2 rounded border text-xs font-medium transition-all ${
-            activeTasksCount > 0
-              ? isDarkMode
-                ? 'bg-[#f3e79a]/15 border-[#f3e79a] text-[#f3e79a]'
-                : 'bg-[#ffd600]/20 border-[#ffd600] text-neutral-900 font-semibold'
-              : isDarkMode
-              ? 'bg-[#1a1a1a] border-[#282828] text-[#cccccc] hover:bg-[#222222]'
-              : 'bg-[#ffffff] border-[#e0e0e0] text-[#333333] hover:bg-[#f4f4f4]'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <Activity
-              className={`w-3.5 h-3.5 ${
-                activeTasksCount > 0
-                  ? isDarkMode ? 'animate-spin text-[#f3e79a]' : 'animate-spin text-[#ca8a04]'
-                  : 'text-[#777777]'
-              }`}
-            />
-            <span>Background Tasks</span>
+      {/* Bottom Budget Meter */}
+      <div className={`border-t border-inherit ${isCollapsed ? 'p-2 flex flex-col items-center' : 'p-3 space-y-2'}`}>
+        {isCollapsed ? (
+          <div
+            title={`Session Expense: $${totalCost.toFixed(4)} / $${costTracker.budgetLimitUSD.toFixed(2)} (${budgetPct.toFixed(0)}%)`}
+            className="w-full flex flex-col items-center gap-1 py-1"
+          >
+            <TrendingUp className={`w-3.5 h-3.5 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+            <span className="text-[10px] font-mono text-center">{budgetPct.toFixed(0)}%</span>
+            <div className={`w-8 h-1 rounded-full overflow-hidden ${isDarkMode ? 'bg-[#2b2b2b]' : 'bg-[#e0e0e0]'}`}>
+              <div
+                className={`h-full ${isDarkMode ? 'bg-[#f3e79a]' : 'bg-[#ffd600]'}`}
+                style={{ width: `${Math.max(5, budgetPct)}%` }}
+              />
+            </div>
           </div>
-          <span
-            className={`px-1.5 py-0.5 rounded text-[11px] font-mono font-medium ${
-              activeTasksCount > 0
-                ? isDarkMode ? 'bg-[#f3e79a] text-neutral-950' : 'bg-[#ffd600] text-neutral-950'
-                : isDarkMode ? 'bg-[#262626] text-[#888888]' : 'bg-[#e5e5e5] text-[#555555]'
+        ) : (
+          <div
+            className={`p-2.5 rounded border text-xs ${
+              isDarkMode ? 'bg-[#1a1a1a] border-[#262626]' : 'bg-white border-[#e0e0e0]'
             }`}
           >
-            {activeTasksCount}
-          </span>
-        </button>
-
-        {/* Live Budget Meter */}
-        <div
-          className={`p-2.5 rounded border text-xs ${
-            isDarkMode ? 'bg-[#1a1a1a] border-[#262626]' : 'bg-white border-[#e0e0e0]'
-          }`}
-        >
-          <div className="flex justify-between items-center mb-1.5">
-            <span className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>Session Expense</span>
-            <span className={`font-mono text-xs font-medium ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
-              ${totalCost.toFixed(4)}
-            </span>
+            <div className="flex justify-between items-center mb-1.5">
+              <span className={`text-[11px] ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>Session Expense</span>
+              <span className={`font-mono text-xs font-medium ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`}>
+                ${totalCost.toFixed(4)}
+              </span>
+            </div>
+            <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-[#2b2b2b]' : 'bg-[#e0e0e0]'}`}>
+              <div
+                className={`h-full transition-all duration-300 ${
+                  isDarkMode ? 'bg-[#f3e79a]' : 'bg-[#ffd600]'
+                }`}
+                style={{ width: `${Math.max(3, budgetPct)}%` }}
+              />
+            </div>
+            <div className={`flex justify-between items-center mt-1 text-[11px] font-mono ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+              <span>Limit: ${costTracker.budgetLimitUSD.toFixed(2)}</span>
+              <span>{budgetPct.toFixed(0)}%</span>
+            </div>
           </div>
-          <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-[#2b2b2b]' : 'bg-[#e0e0e0]'}`}>
-            <div
-              className={`h-full transition-all duration-300 ${
-                isDarkMode ? 'bg-[#f3e79a]' : 'bg-[#ffd600]'
-              }`}
-              style={{ width: `${Math.max(3, budgetPct)}%` }}
-            />
-          </div>
-          <div className={`flex justify-between items-center mt-1 text-[11px] font-mono ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
-            <span>Limit: ${costTracker.budgetLimitUSD.toFixed(2)}</span>
-            <span>{budgetPct.toFixed(0)}%</span>
-          </div>
-        </div>
+        )}
       </div>
     </aside>
   );

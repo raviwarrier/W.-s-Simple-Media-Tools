@@ -13,7 +13,6 @@ import {
   Check,
   Play,
   FileAudio,
-  DollarSign,
   Tag,
   Clock,
   CheckCircle2,
@@ -67,7 +66,6 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
   const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
-  const moduleTotal = costTracker.moduleTotals['audiobook-transcriber'] || { costUSD: 0, runs: 0 };
 
   const activeKey =
     secretStore.keyMode === 'unified'
@@ -282,75 +280,6 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
 
   return (
     <div id="audiobook-transcriber-module" className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Header Banner */}
-      <div
-        className={`p-4 rounded border flex flex-col md:flex-row items-start md:items-center justify-between gap-3 transition-colors ${
-          isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-white border-[#e0e0e0]'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-9 h-9 rounded flex items-center justify-center shrink-0 ${
-              isDarkMode ? 'bg-[#262626] text-[#f3e79a]' : 'bg-[#f4f4f5] text-[#854d0e]'
-            }`}
-          >
-            <BookOpen className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight">Audiobook Snippet Transcriber</h3>
-            <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
-              Extract timestamped audiobook chapters, extract metadata tags via FFprobe, and transcribe
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 text-xs font-mono">
-          <button
-            type="button"
-            id="btn-audiobook-key-status"
-            onClick={() => onNavigateToSettings?.('secrets-settings')}
-            title={
-              activeKey
-                ? 'OpenAI Whisper API key is set. Click to manage in Encrypted Secrets.'
-                : 'API key is not set. Click to configure your key in Encrypted Secrets.'
-            }
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono transition-all cursor-pointer ${
-              activeKey
-                ? isDarkMode
-                  ? 'bg-[#222222] hover:bg-[#2a2a2a] border-emerald-900/60 text-emerald-400'
-                  : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-900 font-medium'
-                : isDarkMode
-                ? 'bg-[#222222] hover:bg-[#2a2a2a] border-amber-800/60 text-amber-400'
-                : 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900 font-medium'
-            }`}
-          >
-            <Key
-              className={`w-3.5 h-3.5 ${
-                activeKey
-                  ? 'text-emerald-500'
-                  : 'text-amber-500'
-              }`}
-            />
-            <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>Key:</span>
-            <span className="font-semibold">
-              {activeKey ? 'set' : 'not set'}
-            </span>
-          </button>
-
-          <div
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono ${
-              isDarkMode
-                ? 'bg-[#222222] border-[#333333] text-[#f3e79a]'
-                : 'bg-[#f8f8f8] border-[#e0e0e0] text-[#854d0e] font-semibold'
-            }`}
-          >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>${moduleTotal.costUSD.toFixed(4)}</span>
-            <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>({moduleTotal.runs})</span>
-          </div>
-        </div>
-      </div>
-
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Inputs */}

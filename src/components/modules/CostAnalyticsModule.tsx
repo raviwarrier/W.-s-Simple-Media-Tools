@@ -21,14 +21,14 @@ interface CostAnalyticsModuleProps {
 }
 
 const MODULE_TITLES: Record<ModuleId, string> = {
-  'video-transcriber': 'Video Transcription',
+  'video-transcriber': 'Video Transcriber',
   'media-clipper': 'Audio/Video Clipper',
   'audiobook-transcriber': 'Audiobook Transcriber',
   'audible-fetcher': 'Audible Fetcher',
   'audio-extractor': 'Audio Extractor',
-  'secrets-settings': 'Secrets Vault',
-  'cost-analytics': 'Cost Analytics',
-  'code-environment': 'Environment',
+  'secrets-settings': 'Encrypted Secrets',
+  'cost-analytics': 'Costs & Budget',
+  'code-environment': 'Environment & Setup',
 };
 
 export const CostAnalyticsModule: React.FC<CostAnalyticsModuleProps> = ({

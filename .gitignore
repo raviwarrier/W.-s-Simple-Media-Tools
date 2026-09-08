@@ -44,9 +44,15 @@ cookies*.txt
 *cookies*.txt
 
 # Temporary processing files and media uploads
-temp/
+# temp/ allowed so users can access files saved in temp
 tmp/
 uploads/
+temp/*.mp3
+temp/*.mp4
+temp/*.wav
+temp/*.m4a
+temp/*.m4b
+temp/*.tmp
 *.tmp
 *.mp3
 *.mp4

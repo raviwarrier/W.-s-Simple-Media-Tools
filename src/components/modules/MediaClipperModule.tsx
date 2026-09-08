@@ -63,7 +63,6 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
 }) => {
   const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
-  const moduleTotal = costTracker.moduleTotals['media-clipper'] || { costUSD: 0, runs: 0 };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -275,58 +274,6 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
 
   return (
     <div id="media-clipper-module" className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Header Banner */}
-      <div
-        className={`p-4 rounded border flex flex-col md:flex-row items-start md:items-center justify-between gap-3 transition-colors ${
-          isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-white border-[#e0e0e0]'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-9 h-9 rounded flex items-center justify-center shrink-0 ${
-              isDarkMode ? 'bg-[#262626] text-[#f3e79a]' : 'bg-[#f4f4f5] text-[#854d0e]'
-            }`}
-          >
-            <Scissors className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight">Audio & Video Clipper</h3>
-            <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
-              Precise timestamp extraction (hh:mm:ss) to audio (.mp3) or video (.mp4) via local FFmpeg
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 text-xs font-mono">
-          <div
-            id="pill-clipper-key-status"
-            title="No API key required — runs 100% locally via FFmpeg with zero external AI model calls."
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono select-none ${
-              isDarkMode
-                ? 'bg-[#222222] border-[#333333] text-[#a3e635]'
-                : 'bg-[#f7fee7] border-[#bef264] text-[#4d7c0f]'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5 opacity-80" />
-            <span>Key:</span>
-            <span className="font-semibold">not required (Local FFmpeg)</span>
-          </div>
-
-          <div
-            title="Cost is $0.00 — This is a local FFmpeg compute tool and does not incur any AI token or API charges."
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-mono ${
-              isDarkMode
-                ? 'bg-[#222222] border-[#333333] text-[#f3e79a]'
-                : 'bg-[#f8f8f8] border-[#e0e0e0] text-[#854d0e] font-semibold'
-            }`}
-          >
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Free ($0.0000)</span>
-            <span className={isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}>({moduleTotal.runs} runs)</span>
-          </div>
-        </div>
-      </div>
-
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Controls */}

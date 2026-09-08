@@ -69,7 +69,7 @@ export const CodeEnvironmentModule: React.FC<CodeEnvironmentModuleProps> = ({ is
             <Terminal className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold tracking-tight">Combined Environment & Python Setup</h3>
+            <h3 className="text-sm font-semibold tracking-tight">Environment & Python Setup</h3>
             <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
               Single unified environment specification (`requirements.txt`), complete setup guide, and Python sources.
             </p>

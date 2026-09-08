@@ -239,6 +239,16 @@ function getDefaultCostTracker() {
   };
 }
 
+// Direct download endpoints for the Mp3tag .src web source file
+app.get(['/api/download-src', '/api/download/src', '/temp/download', '/download/src', '/temp/Audible.com'], (req, res) => {
+  const filePath = path.join(process.cwd(), 'temp', 'Audible.com#Search by Album.src');
+  if (fs.existsSync(filePath)) {
+    res.download(filePath, 'Audible.com#Search by Album.src');
+  } else {
+    res.status(404).send('File not found');
+  }
+});
+
 // Cost Tracker Persistence APIs
 app.get('/api/cost-tracker', (req, res) => {
   try {
