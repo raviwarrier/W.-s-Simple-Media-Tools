@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AudibleFetcherState, AudibleBookResult, ModuleId } from '../../types';
 import { useToast } from '../../context/ToastContext';
+import { MP3TAG_SRC_CODE } from './mp3tagScript';
 import {
   Search,
   BookOpen,
@@ -21,6 +22,7 @@ import {
   Info,
   Layers,
   AlertCircle,
+  Download,
 } from 'lucide-react';
 
 interface AudibleFetcherModuleProps {
@@ -66,6 +68,8 @@ export const AudibleFetcherModule: React.FC<AudibleFetcherModuleProps> = ({
   const [expandedDescIdx, setExpandedDescIdx] = useState<number | null>(null);
   const [showCodeViewer, setShowCodeViewer] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showMp3tagViewer, setShowMp3tagViewer] = useState(false);
+  const [copiedMp3tagScript, setCopiedMp3tagScript] = useState(false);
 
   const formatDuration = (mins: number) => {
     if (!mins || isNaN(mins)) return 'Unknown duration';

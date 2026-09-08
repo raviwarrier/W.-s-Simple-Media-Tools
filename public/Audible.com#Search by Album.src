@@ -1,0 +1,438 @@
+#######################################################################
+# Release Notes
+# v2026-09-08
+# - Enhanced with Audible/Audnex logic parity from Simple Media Tools:
+#   * Added SUBTITLE extraction (from data-test="product-subtitle" or subtitleLabel).
+#   * Added TITLE (mirrors ALBUM for standard tag players).
+#   * Added ARTIST (mirrors ALBUMARTIST for universal player/library support).
+#   * Added SERIES and SERIES-PART (clean numeric extraction from seriesLabel).
+#   * Added NARRATOR tag (mirrors COMPOSER for Audiobookshelf, Plex, and Smart AudioBook).
+#   * Added GENRE extraction (from categoriesLabel multi-genre list).
+#   * Added ISBN extraction (from JSON-LD or page text).
+#   * Enhanced COVERURL to strip Amazon CDN thumbnail limits (._SL500_ -> full high-res).
+#   * Added DESCRIPTION tag (mirrors COMMENT for podcast/audiobook readers).
+#   * Preserved rock-solid index search and robust cleanups.
+#######################################################################
+
+[Name]=Audible.com#Search by Album
+[BasedOn]=https://www.audible.com
+[Encoding]=utf-8
+[UserAgent]=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36
+[WordSeparator]=+
+[Timeout]=20
+
+# Search fields (Mp3tag requires the double "||" separator)
+[SearchBy]=Album||%album%||keywords=%s
+[SearchBy]=ASIN||%asin%||keywords=%s
+[SearchBy]=Album + Author||%album% %artist%||keywords=%s
+
+# Search and detail URLs
+[IndexUrl]=https://www.audible.com/search?ipRedirectOverride=true&overrideBaseCountry=true&language=en_US&keywords=%s
+[AlbumUrl]=%_url%
+
+# Columns in the search dialog
+[IndexFormat]=%_url%|%ALBUM%|%ALBUMARTIST%|%ASIN%|%DURATION%|%YEAR%|%LANGUAGE%
+
+#######################################################################
+# I N D E X
+#######################################################################
+[ParserScriptIndex]
+# debug "on" "debug-index.txt"
+gotoline 1
+unspace
+# Narrow to the main results block to avoid header/footer noise
+findline "aria-label=\"Search results\"" 1 1
+if "aria-label=\"Search results\""
+	joinuntil "</main>"
+endif
+
+# Normalize whitespace
+regexpreplace "\s\s+" " "
+replace "> <" "><"
+
+# Loop through each product tile by its product link
+# We iterate at most 200 times to be safe.
+set "i" "0"
+while "<a href=\"/pd/" 200
+	# Find the next product link
+	findinline "href=\"/pd/"
+	if "href=\"/pd/"
+		movechar 6
+		outputto "_url"
+		say "https://www.audible.com/pd/"
+		sayuntil "\""
+
+		# Capture a local block around the item to mine fields from
+		moveline 0
+		joinuntil "</li>"
+		outputto "_block"
+		sayrest
+
+		# ASIN
+		outputto "ASIN"
+		sayoutput "_block"
+		SayRegexp "(?i)(?<=data-asin=\")[A-Z0-9]{10}"
+
+		# Album: prefer aria-hidden title, fallback to alt or title=
+		outputto "ALBUM"
+		sayoutput "_block"
+		SayRegexp "(?<=aria-hidden=\"true\">)[^<]+(?=<)"
+		ifnotregexp "(?<=aria-hidden=\"true\">)[^<]+(?=<)"
+			outputto "ALBUM"
+			sayoutput "_block"
+			SayRegexp "(?<=alt=\")[^\"]+(?=\")"
+			ifnotregexp "(?<=alt=\")[^\"]+(?=\")"
+				outputto "ALBUM"
+				sayoutput "_block"
+				SayRegexp "(?<=title=\")[^\"]+(?=\")"
+			endif
+		endif
+
+		# Author list (for display only; cleaned fully on album page)
+		outputto "ALBUMARTIST"
+		sayoutput "_block"
+		SayRegexp "(?<=authorLabel.*?>).*?(?=</li>)"
+		regexpreplace "</?[^><]+>" ""
+		unspace
+		regexpreplace "  +" " "
+		regexpreplace "^.*By:\\s*" ""
+		regexpreplace "\\s*Narrated by:.*$" ""
+
+		# Duration
+		outputto "DURATION"
+		sayoutput "_block"
+		SayRegexp "(?<=runtimeLabel.*?bc-color-secondary\">)[^<]+"
+
+		# Year (from Release date)
+		outputto "YEAR"
+		sayoutput "_block"
+		SayRegexp "(?<=Release date:.*?>).*?(?=<)"
+		regexpreplace ".*?(\\d{4}).*" "$1"
+
+		# Language
+		outputto "LANGUAGE"
+		sayoutput "_block"
+		SayRegexp "(?<=languageLabel.*?>)[^<]+"
+
+		# Emit row
+		outputto ""
+		sayoutput "_url"
+		say "|"
+		sayoutput "ALBUM"
+		say "|"
+		sayoutput "ALBUMARTIST"
+		say "|"
+		sayoutput "ASIN"
+		say "|"
+		sayoutput "DURATION"
+		say "|"
+		sayoutput "YEAR"
+		say "|"
+		sayoutput "LANGUAGE"
+		saynewline
+	else
+		# No more /pd/ links
+		break
+	endif
+endwhile
+
+#######################################################################
+# A L B U M
+#######################################################################
+[ParserScriptAlbum]
+# debug "on" "debug-album.txt"
+gotoline 1
+unspace
+regexpreplace "\s\s+" " "
+replace "> <" "><"
+
+# ----- Title
+outputto "ALBUM"
+findline "data-test=\"product-title\"" 1 1
+if "data-test=\"product-title\""
+	findinline ">"
+	sayuntil "<"
+else
+	gotoline 1
+	findline "<h1" 1 1
+	findinline ">"
+	sayuntil "<"
+endif
+
+# Title (standard tag)
+outputto "TITLE"
+sayoutput "ALBUM"
+
+# ----- Subtitle
+outputto "SUBTITLE"
+gotoline 1
+findline "data-test=\"product-subtitle\"" 1 1
+if "data-test=\"product-subtitle\""
+	findinline ">"
+	sayuntil "<"
+else
+	gotoline 1
+	findline "subtitleLabel" 1 1
+	if "subtitleLabel"
+		findinline ">"
+		sayuntil "<"
+	else
+		say ""
+	endif
+endif
+
+# ----- Albumartist (Authors), strip any "Narrated by: ..."
+outputto "ALBUMARTIST"
+gotoline 1
+findline "authorLabel" 1 1
+if "authorLabel"
+	moveline 3 1
+	joinuntil "</li>"
+	regexpreplace "</?[^><]+>" ""
+	unspace
+	regexpreplace "  +" " "
+	regexpreplace "^.*By:\\s*" ""
+	regexpreplace "\\s*Narrated by:.*$" ""
+	sayrest
+else
+	gotoline 1
+	findline ">By " 1 1
+	if ">By "
+		findinline ">By "
+		sayuntil "<"
+		regexpreplace "\\s*Narrated by:.*$" ""
+	else
+		say ""
+	endif
+endif
+
+# Artist (standard tag mirroring Albumartist)
+outputto "ARTIST"
+sayoutput "ALBUMARTIST"
+
+# ----- ASIN
+outputto "ASIN"
+gotoline 1
+findline "data-asin=\"" 1 1
+if "data-asin=\""
+	SayRegexp "(?i)(?<=data-asin=\")[A-Z0-9]{10}"
+else
+	gotoline 1
+	findline "\"asin\":" 1 1
+	if "\"asin\":"
+		SayRegexp "(?i)(?<=\\\"asin\\\":\\\")[A-Z0-9]{10}"
+	else
+		say ""
+	endif
+endif
+
+# ----- Series & Series-Part
+outputto "SERIES"
+gotoline 1
+findline "seriesLabel" 1 1
+if "seriesLabel"
+	moveline 3 1
+	joinuntil "</li>"
+	outputto "_seriesraw"
+	sayrest
+
+	# Series name (first anchor or text before comma)
+	outputto "SERIES"
+	sayoutput "_seriesraw"
+	regexpreplace "^.*?<a[^>]*>" ""
+	regexpreplace "</a>.*$" ""
+	regexpreplace "</?[^><]+>" ""
+	unspace
+
+	# Series-Part / Number (e.g. "Book 1", "#2" -> "1", "2")
+	outputto "SERIES-PART"
+	sayoutput "_seriesraw"
+	regexpreplace "</?[^><]+>" ""
+	unspace
+	SayRegexp "\\d+(\\.\\d+)?"
+else
+	say ""
+endif
+
+# ----- Composer & Narrator
+outputto "COMPOSER"
+gotoline 1
+findline "narratorLabel" 1 1
+if "narratorLabel"
+	moveline 3 1
+	joinuntil "</li>"
+	regexpreplace "</?[^><]+>" ""
+	unspace
+	regexpreplace "  +" " "
+	regexpreplace "^.*Narrated by:\\s*" ""
+	regexpreplace "\\s*By:.*$" ""
+	sayrest
+else
+	# Fallback: plain text "Narrated by"
+	gotoline 1
+	findline "Narrated by" 1 1
+	if "Narrated by"
+		joinuntil "</li>"
+		regexpreplace "</?[^><]+>" ""
+		unspace
+		regexpreplace "  +" " "
+		regexpreplace "^.*Narrated by:\\s*" ""
+		regexpreplace "\\s*By:.*$" ""
+		sayrest
+	else
+		say ""
+	endif
+endif
+
+# Mirror narrator to NARRATOR tag
+outputto "NARRATOR"
+sayoutput "COMPOSER"
+
+# ----- Genres / Categories
+outputto "GENRE"
+gotoline 1
+findline "categoriesLabel" 1 1
+if "categoriesLabel"
+	moveline 3 1
+	joinuntil "</li>"
+	regexpreplace "</?[^><]+>" ", "
+	regexpreplace "^.*Categories:\\s*" ""
+	regexpreplace "^\\s*,\\s*" ""
+	regexpreplace "\\s*,\\s*$" ""
+	regexpreplace "\\s*,(\\s*,)+" ", "
+	unspace
+	sayrest
+else
+	say ""
+endif
+
+# ----- Cover (high-res: strip Amazon thumbnail size limit)
+outputto "COVERURL"
+gotoline 1
+findline "data-test=\"hero-image\"" 1 1
+if "data-test=\"hero-image\""
+	findinline "src=\""
+	movechar 5
+	sayuntil "\""
+else
+	gotoline 1
+	findline "property=\"og:image\"" 1 1
+	if "property=\"og:image\""
+		findinline "content=\""
+		movechar 9
+		sayuntil "\""
+	else
+		say ""
+	endif
+endif
+# Upgrade Amazon CDN image to high-resolution by removing thumbnail dimensions
+regexpreplace "\\._S[SL]\\d+_\\." "."
+
+# ----- Year
+outputto "YEAR"
+gotoline 1
+findline "Release date:" 1 1
+if "Release date:"
+	findinline ">"
+	SayRegexp "\\d{4}"
+else
+	# Sometimes present as datePublished JSON in page
+	gotoline 1
+	findline "datePublished" 1 1
+	if "datePublished"
+		SayRegexp "\\d{4}"
+	else
+		say ""
+	endif
+endif
+
+# ----- ISBN
+outputto "ISBN"
+gotoline 1
+findline "\"isbn\":" 1 1
+if "\"isbn\":"
+	SayRegexp "(?<=\\\"isbn\\\":\\\")[0-9X-]+"
+else
+	gotoline 1
+	findline "ISBN:" 1 1
+	if "ISBN:"
+		SayRegexp "[0-9]{13}|[0-9]{10}"
+	else
+		say ""
+	endif
+endif
+
+# ----- Language
+outputto "LANGUAGE"
+gotoline 1
+findline "languageLabel" 1 1
+if "languageLabel"
+	moveline 3 1
+	findinline ">"
+	sayuntil "<"
+else
+	say ""
+endif
+
+# ----- Publisher (best-effort)
+outputto "PUBLISHER"
+gotoline 1
+findline "publisherLabel" 1 1
+if "publisherLabel"
+	moveline 3 1
+	findinline ">"
+	sayuntil "<"
+else
+	gotoline 1
+	findline "©" 1 1
+	if "©"
+		movechar 3
+		sayuntil "<"
+	else
+		say ""
+	endif
+endif
+
+# ----- Description / Summary (output to both COMMENT and DESCRIPTION)
+outputto "COMMENT"
+gotoline 1
+findline "Publisher's Summary" 1 1
+if "Publisher's Summary"
+	findline "<span" 1 1
+	joinuntil "</span>"
+	regexpreplace "</?[^><]+>" ""
+	unspace
+	regexpreplace "  +" " "
+	sayrest
+else
+	gotoline 1
+	findline "name=\"description\"" 1 1
+	if "name=\"description\""
+		findinline "content=\""
+		movechar 9
+		sayuntil "\""
+	else
+		say ""
+	endif
+endif
+
+# Mirror summary to DESCRIPTION
+outputto "DESCRIPTION"
+sayoutput "COMMENT"
+
+# ----- Rating (rough)
+outputto "RATING WMP"
+gotoline 1
+findline "aria-label=\"Rating\"" 1 1
+if "aria-label=\"Rating\""
+	findinline ">"
+	SayRegexp "\\d(\\.\\d)?"
+else
+	say "0.0"
+endif
+
+# ----- iTunes audiobook flags
+outputto "ITUNESMEDIATYPE"
+say "Audiobook"
+outputto "ITUNESGAPLESS"
+say "1"
