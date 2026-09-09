@@ -20,7 +20,78 @@ import {
   Key,
   FolderOpen,
   Upload,
+  Info,
 } from 'lucide-react';
+
+export function parseAudiobookTranscriptAndMeta(
+  rawText: string,
+  fallbackModel: string,
+  fallbackBook: string,
+  fallbackAuthor: string,
+  fallbackTimestamp: string,
+  fallbackDuration: number
+): {
+  cleanText: string;
+  meta: { model: string; book: string; author: string; timestamp: string; duration: number };
+} {
+  if (!rawText) {
+    return {
+      cleanText: '',
+      meta: {
+        model: fallbackModel,
+        book: fallbackBook,
+        author: fallbackAuthor,
+        timestamp: fallbackTimestamp,
+        duration: fallbackDuration,
+      },
+    };
+  }
+
+  const lines = rawText.split('\n');
+  let book = fallbackBook;
+  let author = fallbackAuthor;
+  let timestamp = fallbackTimestamp;
+  let model = fallbackModel;
+  let duration = fallbackDuration;
+  let headerLineCount = 0;
+
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const line = lines[i].trim();
+    if (/^Book:\s*/i.test(line) || /^Title:\s*/i.test(line)) {
+      book = line.replace(/^(?:Book|Title):\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Author:\s*/i.test(line)) {
+      author = line.replace(/^Author:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Timestamp:\s*/i.test(line) || /^Timestamp Range:\s*/i.test(line)) {
+      timestamp = line.replace(/^Timestamp(?:\s*Range)?:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Whisper Model:\s*/i.test(line) || /^Model:\s*/i.test(line)) {
+      model = line.replace(/^(?:Whisper\s*)?Model:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (line.startsWith('--- TRANSCRIPT ---') || line === '') {
+      headerLineCount = i + 1;
+    } else if (headerLineCount > 0) {
+      break;
+    }
+  }
+
+  let cleanText = rawText;
+  if (headerLineCount > 0) {
+    cleanText = lines.slice(headerLineCount).join('\n').trim();
+  }
+
+  return {
+    cleanText,
+    meta: {
+      model: model || fallbackModel,
+      book: book || fallbackBook,
+      author: author || fallbackAuthor,
+      timestamp: timestamp || fallbackTimestamp,
+      duration: duration || fallbackDuration,
+    },
+  };
+}
 
 interface AudiobookTranscriberModuleProps {
   state: AudiobookTranscriberState;
@@ -66,23 +137,59 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
   const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedMeta, setCopiedMeta] = useState(false);
 
   const activeKey =
     secretStore.keyMode === 'unified'
       ? secretStore.unifiedOpenAiKey?.trim()
       : secretStore.moduleOpenAiKeys.audiobookTranscriber?.trim();
 
+  const fallbackStartLabel = `${state.hours.toString().padStart(2, '0')}:${state.minutes.toString().padStart(2, '0')}:${state.seconds.toString().padStart(2, '0')}`;
+  const fallbackModel = `Whisper (${state.modelSize})`;
+  const fallbackBook = state.detectedBook || 'Unknown Book';
+  const fallbackAuthor = state.detectedAuthor || 'Unknown Author';
+
+  const { cleanText, meta } = parseAudiobookTranscriptAndMeta(
+    state.transcript,
+    state.transcriptMeta?.model || fallbackModel,
+    state.transcriptMeta?.book || fallbackBook,
+    state.transcriptMeta?.author || fallbackAuthor,
+    state.transcriptMeta?.timestamp || `${fallbackStartLabel} (+${state.duration}s)`,
+    state.transcriptMeta?.duration || state.duration
+  );
+
   const handleCopyTranscript = () => {
-    if (!state.transcript) return;
-    navigator.clipboard.writeText(state.transcript);
+    if (!cleanText) return;
+    navigator.clipboard.writeText(cleanText);
     setCopied(true);
     showToast({
       type: 'info',
       title: 'Copied to Clipboard',
-      message: 'Audiobook transcript copied successfully.',
+      message: 'Audiobook transcript copied successfully (without metadata).',
       duration: 5000,
     });
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyMeta = () => {
+    if (!meta) return;
+    const metaLines = [
+      `Book: ${meta.book}`,
+      `Author: ${meta.author}`,
+      `Model: ${meta.model}`,
+      `Timestamp: ${meta.timestamp}`,
+      `Duration: ${meta.duration}s`,
+    ];
+
+    navigator.clipboard.writeText(metaLines.join('\n'));
+    setCopiedMeta(true);
+    showToast({
+      type: 'info',
+      title: 'Metadata Copied',
+      message: 'Audiobook snippet metadata copied to clipboard.',
+      duration: 4000,
+    });
+    setTimeout(() => setCopiedMeta(false), 2000);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -231,13 +338,24 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
           const finalAuthor = resData.author || cleanAuthor;
           const finalFilename = resData.filename || targetFilename;
 
-          const transcriptContent =
+          const parsed = parseAudiobookTranscriptAndMeta(
+            resData.transcript,
+            `Whisper (${state.modelSize})`,
+            finalBook,
+            finalAuthor,
+            `${startLabel} (+${state.duration}s)`,
+            state.duration
+          );
+
+          const cleanTranscript = parsed.cleanText;
+
+          const transcriptDownloadContent =
             `Book: ${finalBook}\nAuthor: ${finalAuthor}\nTimestamp: ${startLabel} (+${state.duration}s)\n` +
             `Whisper Model: ${state.modelSize}\n` +
             `\n--- TRANSCRIPT ---\n` +
-            resData.transcript;
+            cleanTranscript;
 
-          const blob = new Blob([transcriptContent], { type: 'text/plain;charset=utf-8' });
+          const blob = new Blob([transcriptDownloadContent], { type: 'text/plain;charset=utf-8' });
           const dataUrl = URL.createObjectURL(blob);
 
           onRecordCost(
@@ -255,7 +373,8 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
             ...prev,
             detectedBook: finalBook,
             detectedAuthor: finalAuthor,
-            transcript: transcriptContent,
+            transcript: cleanTranscript,
+            transcriptMeta: parsed.meta,
             downloadReady: {
               filename: finalFilename,
               url: dataUrl,
@@ -265,7 +384,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
           }));
 
           return {
-            transcript: transcriptContent,
+            transcript: cleanTranscript,
             filename: finalFilename,
             dataUrl,
             durationSec: state.duration,
@@ -648,7 +767,7 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
             </div>
           </div>
 
-          {state.transcript ? (
+          {cleanText ? (
             <div className="space-y-3 flex-1 flex flex-col">
               <div
                 className={`p-3.5 rounded border flex items-center justify-between ${
@@ -668,15 +787,78 @@ export const AudiobookTranscriberModule: React.FC<AudiobookTranscriberModuleProp
                 </div>
               </div>
 
+              {/* Metadata Section - Outside transcripted text textbox */}
+              {meta && (
+                <div
+                  id="section-audiobook-metadata"
+                  className={`p-3.5 rounded border transition-colors ${
+                    isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-[#fafafa] border-[#e0e0e0]'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-inherit pb-2 mb-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <Info className={`w-4 h-4 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                      <h5 className="text-xs font-semibold uppercase tracking-wider">
+                        Metadata Information
+                      </h5>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyMeta}
+                      id="btn-copy-audiobook-meta"
+                      title="Copy metadata information to clipboard"
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium text-xs border transition-colors ${
+                        copiedMeta
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                          : isDarkMode
+                          ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                          : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                      }`}
+                    >
+                      {copiedMeta ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedMeta ? 'Meta Copied!' : 'Copy Metadata'}</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Model:</span>
+                      <span className="font-semibold font-mono text-xs">{meta.model}</span>
+                    </div>
+                    <div>
+                      <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Timestamp:</span>
+                      <span className="font-semibold font-mono text-xs">{meta.timestamp}</span>
+                    </div>
+                    <div className="truncate">
+                      <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Book:</span>
+                      <span className="font-semibold font-mono text-xs truncate block" title={meta.book}>{meta.book}</span>
+                    </div>
+                    <div className="truncate">
+                      <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Author:</span>
+                      <span className="font-semibold font-mono text-xs truncate block" title={meta.author}>{meta.author}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Transcript Area - ONLY clean transcribed text */}
               <div className="flex-1 space-y-2">
-                <label className="text-sm font-medium flex items-center gap-1.5">
-                  <FileText className={`w-4 h-4 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
-                  <span>Transcription Output:</span>
-                </label>
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <label className="flex items-center gap-1.5">
+                    <FileText className={`w-4 h-4 ${isDarkMode ? 'text-[#888888]' : 'text-[#777777]'}`} />
+                    <span>Transcription Output:</span>
+                  </label>
+                  {cleanText && (
+                    <span className={`font-mono text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
+                      {cleanText.split('\n').length} lines
+                    </span>
+                  )}
+                </div>
                 <textarea
                   readOnly
                   rows={14}
-                  value={state.transcript}
+                  id="textarea-audiobook-transcription-output"
+                  value={cleanText}
                   className={`w-full p-3.5 font-mono text-sm leading-relaxed rounded border resize-none focus:outline-none ${
                     isDarkMode
                       ? 'bg-[#121212] border-[#2c2c2c] text-neutral-200 focus:border-[#f3e79a]'

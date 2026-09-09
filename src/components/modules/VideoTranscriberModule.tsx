@@ -20,7 +20,71 @@ import {
   ChevronUp,
   FileText,
   Sparkles,
+  Info,
 } from 'lucide-react';
+
+export function parseTranscriptAndMeta(
+  rawText: string,
+  fallbackModel: string,
+  fallbackFormat: string,
+  fallbackTitle: string,
+  fallbackDuration: string
+): { cleanText: string; meta: { model: string; format: string; title: string; duration: string } } {
+  if (!rawText) {
+    return {
+      cleanText: '',
+      meta: {
+        model: fallbackModel,
+        format: fallbackFormat,
+        title: fallbackTitle,
+        duration: fallbackDuration,
+      },
+    };
+  }
+
+  const lines = rawText.split('\n');
+  let title = fallbackTitle;
+  let duration = fallbackDuration;
+  let model = fallbackModel;
+  let format = fallbackFormat;
+  let headerLineCount = 0;
+
+  for (let i = 0; i < Math.min(lines.length, 6); i++) {
+    const line = lines[i].trim();
+    if (/^Title:\s*/i.test(line)) {
+      title = line.replace(/^Title:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Duration:\s*/i.test(line)) {
+      duration = line.replace(/^Duration:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Model:\s*/i.test(line) || /^Whisper Model:\s*/i.test(line)) {
+      model = line.replace(/^(?:Whisper\s*)?Model:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (/^Format:\s*/i.test(line)) {
+      format = line.replace(/^Format:\s*/i, '').trim();
+      headerLineCount = i + 1;
+    } else if (line === '' && headerLineCount > 0) {
+      headerLineCount = i + 1;
+    } else if (headerLineCount > 0) {
+      break;
+    }
+  }
+
+  let cleanText = rawText;
+  if (headerLineCount > 0) {
+    cleanText = lines.slice(headerLineCount).join('\n').trim();
+  }
+
+  return {
+    cleanText,
+    meta: {
+      model: model || fallbackModel,
+      format: format || fallbackFormat,
+      title: title || fallbackTitle,
+      duration: duration || fallbackDuration,
+    },
+  };
+}
 
 interface VideoTranscriberModuleProps {
   state: VideoTranscriberState;
@@ -107,6 +171,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [localUrl, setLocalUrl] = useState(state.videoUrl);
   const [copied, setCopied] = useState(false);
+  const [copiedMeta, setCopiedMeta] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -115,17 +180,52 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
       ? secretStore.unifiedOpenAiKey
       : secretStore.moduleOpenAiKeys.videoTranscriber || secretStore.unifiedOpenAiKey;
 
+  const fallbackModel = `Whisper (${state.modelSize})`;
+  const fallbackFormat = state.omitTimestamps
+    ? 'Passages / Paragraphs (No Timestamps)'
+    : `Timestamps [HH:MM:SS] (Chunks ${state.chunkDuration}s)`;
+  const fallbackTitle = state.uploadedFileName || state.videoUrl || 'Media Source';
+  const fallbackDuration = '';
+
+  const { cleanText, meta } = parseTranscriptAndMeta(
+    state.finalTranscription,
+    state.transcriptionMeta?.model || fallbackModel,
+    state.transcriptionMeta?.format || fallbackFormat,
+    state.transcriptionMeta?.title || fallbackTitle,
+    state.transcriptionMeta?.duration ? String(state.transcriptionMeta.duration) : fallbackDuration
+  );
+
   const handleCopyTranscript = () => {
-    if (!state.finalTranscription) return;
-    navigator.clipboard.writeText(state.finalTranscription);
+    if (!cleanText) return;
+    navigator.clipboard.writeText(cleanText);
     setCopied(true);
     showToast({
       type: 'info',
       title: 'Transcription Copied',
-      message: 'Full transcription text copied to clipboard.',
+      message: 'Transcribed text copied to clipboard (without metadata).',
       duration: 5000,
     });
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyMeta = () => {
+    if (!meta) return;
+    const metaLines = [
+      `Model: ${meta.model}`,
+      `Format: ${meta.format}`,
+      meta.title ? `Title: ${meta.title}` : '',
+      meta.duration ? `Duration: ${meta.duration}` : '',
+    ].filter(Boolean);
+
+    navigator.clipboard.writeText(metaLines.join('\n'));
+    setCopiedMeta(true);
+    showToast({
+      type: 'info',
+      title: 'Metadata Copied',
+      message: 'Transcription metadata copied to clipboard.',
+      duration: 4000,
+    });
+    setTimeout(() => setCopiedMeta(false), 2000);
   };
 
   const handleCopySummary = () => {
@@ -243,15 +343,36 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           const result = (await response.json()) as {
             title: string;
             durationSec: number;
+            model?: string;
+            format?: string;
             transcript: string;
             summary: string;
           };
 
-          const fullTranscription = result.transcript;
+          const formatLabel =
+            result.format ||
+            (state.omitTimestamps
+              ? 'Passages / Paragraphs (No Timestamps)'
+              : `Timestamps [HH:MM:SS] (Chunks ${state.chunkDuration}s)`);
+          const modelLabel = result.model || `Whisper (${state.modelSize})`;
+          const titleLabel = result.title || title;
+          const durationLabel = `${result.durationSec || 60}s`;
+
+          const parsed = parseTranscriptAndMeta(
+            result.transcript,
+            modelLabel,
+            formatLabel,
+            titleLabel,
+            durationLabel
+          );
+
+          const fullTranscription = parsed.cleanText;
           const finalSummary = result.summary || '';
 
           const fullTextFileContent =
-            fullTranscription + (finalSummary ? `\n\n=== AI EXECUTIVE SUMMARY ===\n${finalSummary}` : '');
+            `Title: ${titleLabel}\nDuration: ${durationLabel}\nModel: ${modelLabel}\nFormat: ${formatLabel}\n\n` +
+            fullTranscription +
+            (finalSummary ? `\n\n=== AI EXECUTIVE SUMMARY ===\n${finalSummary}` : '');
 
           const blob = new Blob([fullTextFileContent], { type: 'text/plain;charset=utf-8' });
           const dataUrl = URL.createObjectURL(blob);
@@ -274,6 +395,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
           onChange((prev) => ({
             ...prev,
             finalTranscription: fullTranscription,
+            transcriptionMeta: parsed.meta,
             finalSummary,
             downloadReady: { filename, url: dataUrl, size: blob.size },
             isProcessing: false,
@@ -681,16 +803,74 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
             </div>
           </div>
 
-          {/* Transcript Area */}
+          {/* Metadata Section - Outside transcripted text textbox */}
+          {cleanText && (
+            <div
+              id="section-transcription-metadata"
+              className={`p-3.5 rounded border transition-colors ${
+                isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-[#fafafa] border-[#e0e0e0]'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-inherit pb-2 mb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Info className={`w-4 h-4 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                  <h5 className="text-xs font-semibold uppercase tracking-wider">
+                    Metadata Information
+                  </h5>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyMeta}
+                  id="btn-copy-transcription-meta"
+                  title="Copy metadata information to clipboard"
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium text-xs border transition-colors ${
+                    copiedMeta
+                      ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                      : isDarkMode
+                      ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                      : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                  }`}
+                >
+                  {copiedMeta ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedMeta ? 'Meta Copied!' : 'Copy Metadata'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Model:</span>
+                  <span className="font-semibold font-mono text-xs">{meta.model}</span>
+                </div>
+                <div>
+                  <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Format:</span>
+                  <span className="font-semibold font-mono text-xs">{meta.format}</span>
+                </div>
+                {meta.title && (
+                  <div className="truncate">
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Title:</span>
+                    <span className="font-semibold font-mono text-xs truncate block" title={meta.title}>{meta.title}</span>
+                  </div>
+                )}
+                {meta.duration && (
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Duration:</span>
+                    <span className="font-semibold font-mono text-xs">{meta.duration}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Transcript Area - ONLY clean transcribed text */}
           <div className="flex-1 flex flex-col space-y-2">
             <div className="text-sm font-medium flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span>{state.omitTimestamps ? 'Paragraph Transcription:' : 'Timestamped Transcription:'}</span>
               </div>
               <div className="flex items-center gap-2">
-                {state.finalTranscription && (
+                {cleanText && (
                   <span className={`font-mono text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
-                    {state.finalTranscription.split('\n').length} lines
+                    {cleanText.split('\n').length} lines
                   </span>
                 )}
               </div>
@@ -699,7 +879,7 @@ export const VideoTranscriberModule: React.FC<VideoTranscriberModuleProps> = ({
               readOnly
               rows={state.operationMode === 'Transcribe' ? 26 : (state.finalSummary ? 12 : 16)}
               id="textarea-transcription-output"
-              value={state.finalTranscription || 'No transcription yet. Click "Start Transcription" to process audio.'}
+              value={cleanText || 'No transcription yet. Click "Start Transcription" to process audio.'}
               className={`w-full flex-1 p-3.5 rounded font-mono text-sm leading-relaxed border resize-y focus:outline-none transition-all ${
                 isDarkMode
                   ? 'bg-[#121212] border-[#2c2c2c] text-neutral-200 focus:border-[#f3e79a]'

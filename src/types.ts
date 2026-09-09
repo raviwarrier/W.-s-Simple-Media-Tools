@@ -65,6 +65,24 @@ export interface BackgroundTask {
   costUSD: number;
 }
 
+export interface TranscriptionMeta {
+  model: string;
+  format: string;
+  title?: string;
+  duration?: string | number;
+  wordCount?: number;
+  lineCount?: number;
+}
+
+export interface AudiobookTranscriptMeta {
+  model: string;
+  book: string;
+  author: string;
+  timestamp: string;
+  duration: number;
+  wordCount?: number;
+}
+
 // Module 1 State
 export interface VideoTranscriberState {
   videoUrl: string;
@@ -80,6 +98,7 @@ export interface VideoTranscriberState {
   operationMode: 'Transcribe' | 'Transcribe & Summarize';
   finalTranscription: string;
   finalSummary: string;
+  transcriptionMeta?: TranscriptionMeta | null;
   downloadReady: { filename: string; url: string; size: number } | null;
   isProcessing: boolean;
 }
@@ -120,6 +139,7 @@ export interface AudiobookTranscriberState {
   detectedBook: string;
   detectedAuthor: string;
   transcript: string;
+  transcriptMeta?: AudiobookTranscriptMeta | null;
   downloadReady: { filename: string; url: string; size: number } | null;
   isProcessing: boolean;
 }

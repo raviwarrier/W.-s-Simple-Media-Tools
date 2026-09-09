@@ -14,6 +14,9 @@ import {
   DollarSign,
   FileCheck,
   Key,
+  Copy,
+  Check,
+  Info,
 } from 'lucide-react';
 
 interface AudioExtractorModuleProps {
@@ -55,7 +58,40 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
 }) => {
   const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
+  const [copiedMeta, setCopiedMeta] = useState(false);
   const [videoDuration, setVideoDuration] = useState<number>(300); // default 5m
+
+  const handleCopyMeta = () => {
+    if (!state.extractedClip) return;
+    const source =
+      state.sourceType === 'Direct Link / URL'
+        ? state.url
+        : state.sourceType === 'Server Path'
+        ? state.serverPath || 'Server Path'
+        : state.uploadedFileName || 'Uploaded File';
+
+    const timeRange = state.extractEntireDuration
+      ? 'Entire Duration'
+      : `${state.startTimeStr} → ${state.endTimeStr}`;
+
+    const metaString = [
+      `Format: Audio (.mp3)`,
+      `Extraction Mode: ${timeRange}`,
+      `Duration: ${state.extractedClip.duration}s`,
+      `Source: ${source}`,
+      `Filename: ${state.extractedClip.filename}`,
+    ].join('\n');
+
+    navigator.clipboard.writeText(metaString);
+    setCopiedMeta(true);
+    showToast({
+      type: 'info',
+      title: 'Metadata Copied',
+      message: 'Audio extraction metadata copied to clipboard.',
+      duration: 3500,
+    });
+    setTimeout(() => setCopiedMeta(false), 2000);
+  };
   const moduleTotal = costTracker.moduleTotals['audio-extractor'] || { costUSD: 0, runs: 0 };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -480,6 +516,60 @@ export const AudioExtractorModule: React.FC<AudioExtractorModuleProps> = ({
                     <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
                       Duration: {state.extractedClip.duration}s • Ready for download
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metadata Section - Separate with Copy Button */}
+              <div
+                id="section-audio-extractor-metadata"
+                className={`p-3.5 rounded border transition-colors ${
+                  isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-[#fafafa] border-[#e0e0e0]'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-inherit pb-2 mb-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <Info className={`w-4 h-4 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                    <h5 className="text-xs font-semibold uppercase tracking-wider">
+                      Extraction Metadata
+                    </h5>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyMeta}
+                    id="btn-copy-extractor-meta"
+                    title="Copy extraction metadata to clipboard"
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium text-xs border transition-colors ${
+                      copiedMeta
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                        : isDarkMode
+                        ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                        : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                    }`}
+                  >
+                    {copiedMeta ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedMeta ? 'Meta Copied!' : 'Copy Metadata'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Format:</span>
+                    <span className="font-semibold font-mono text-xs">Audio (.mp3)</span>
+                  </div>
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Range:</span>
+                    <span className="font-semibold font-mono text-xs">
+                      {state.extractEntireDuration ? 'Full audio' : `${state.startTimeStr} → ${state.endTimeStr}`}
+                    </span>
+                  </div>
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Duration:</span>
+                    <span className="font-semibold font-mono text-xs">{state.extractedClip.duration}s</span>
+                  </div>
+                  <div className="truncate">
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Filename:</span>
+                    <span className="font-semibold font-mono text-xs truncate block" title={state.extractedClip.filename}>{state.extractedClip.filename}</span>
                   </div>
                 </div>
               </div>

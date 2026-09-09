@@ -668,7 +668,10 @@ app.post('/api/video-transcriber/process', upload.single('file'), async (req, re
     res.json({
       title,
       durationSec: Math.round(totalDuration) || 60,
-      transcript: fullTranscriptWithHeader,
+      model: `Whisper (${modelSize})`,
+      format: modeLabel,
+      transcript: transcriptText,
+      fullTranscriptWithHeader,
       summary: summaryText,
     });
   } catch (err: unknown) {
@@ -944,6 +947,7 @@ app.post('/api/audiobook/process', upload.single('file'), async (req, res) => {
     res.json({
       book,
       author,
+      model: `Whisper (${modelSize})`,
       timestamp: timestampLabel,
       duration: durSec,
       transcript,

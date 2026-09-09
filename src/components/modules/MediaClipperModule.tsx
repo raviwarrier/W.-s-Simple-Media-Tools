@@ -21,6 +21,9 @@ import {
   FileCheck,
   Key,
   HardDrive,
+  Copy,
+  Check,
+  Info,
 } from 'lucide-react';
 
 interface MediaClipperModuleProps {
@@ -63,6 +66,36 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
 }) => {
   const { showToast } = useToast();
   const [errorMsg, setErrorMsg] = useState('');
+  const [copiedMeta, setCopiedMeta] = useState(false);
+
+  const handleCopyMeta = () => {
+    if (!state.clipResult) return;
+    const source =
+      state.sourceMode === 'URL'
+        ? state.mediaUrl
+        : state.sourceMode === 'Server Path'
+        ? state.filePath || 'Server Path'
+        : state.uploadedFileName || 'Uploaded File';
+
+    const metaString = [
+      `Format: ${state.clipResult.mode} (.${state.clipResult.mode === 'Audio' ? 'mp3' : 'mp4'})`,
+      `Start Time: ${state.startTimeStr}`,
+      `End Time: ${state.endTimeStr}`,
+      `Duration: ${state.clipResult.duration.toFixed(1)}s`,
+      `Source: ${source}`,
+      `Filename: ${state.clipResult.filename}`,
+    ].join('\n');
+
+    navigator.clipboard.writeText(metaString);
+    setCopiedMeta(true);
+    showToast({
+      type: 'info',
+      title: 'Metadata Copied',
+      message: 'Media clip metadata copied to clipboard.',
+      duration: 3500,
+    });
+    setTimeout(() => setCopiedMeta(false), 2000);
+  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -581,6 +614,58 @@ export const MediaClipperModule: React.FC<MediaClipperModuleProps> = ({
                     <p className={`text-xs ${isDarkMode ? 'text-[#888888]' : 'text-[#666666]'}`}>
                       Duration: {state.clipResult.duration.toFixed(1)}s • Ready for download
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metadata Section - Separate with Copy Button */}
+              <div
+                id="section-media-clipper-metadata"
+                className={`p-3.5 rounded border transition-colors ${
+                  isDarkMode ? 'bg-[#181818] border-[#2c2c2c]' : 'bg-[#fafafa] border-[#e0e0e0]'
+                }`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-inherit pb-2 mb-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <Info className={`w-4 h-4 ${isDarkMode ? 'text-[#f3e79a]' : 'text-[#854d0e]'}`} />
+                    <h5 className="text-xs font-semibold uppercase tracking-wider">
+                      Clip Metadata
+                    </h5>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyMeta}
+                    id="btn-copy-clipper-meta"
+                    title="Copy clip metadata to clipboard"
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded font-medium text-xs border transition-colors ${
+                      copiedMeta
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                        : isDarkMode
+                        ? 'bg-[#222222] border-[#333333] text-neutral-200 hover:bg-[#2a2a2a]'
+                        : 'bg-[#f4f4f5] border-[#d4d4d8] text-neutral-800 hover:bg-[#e4e4e7]'
+                    }`}
+                  >
+                    {copiedMeta ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedMeta ? 'Meta Copied!' : 'Copy Metadata'}</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Format:</span>
+                    <span className="font-semibold font-mono text-xs">{state.clipResult.mode} (.{state.clipResult.mode === 'Audio' ? 'mp3' : 'mp4'})</span>
+                  </div>
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Time Range:</span>
+                    <span className="font-semibold font-mono text-xs">{state.startTimeStr} → {state.endTimeStr}</span>
+                  </div>
+                  <div>
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Duration:</span>
+                    <span className="font-semibold font-mono text-xs">{state.clipResult.duration.toFixed(1)}s</span>
+                  </div>
+                  <div className="truncate">
+                    <span className={`block text-[11px] font-medium ${isDarkMode ? 'text-neutral-400' : 'text-neutral-500'}`}>Filename:</span>
+                    <span className="font-semibold font-mono text-xs truncate block" title={state.clipResult.filename}>{state.clipResult.filename}</span>
                   </div>
                 </div>
               </div>
