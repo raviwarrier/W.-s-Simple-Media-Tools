@@ -89,6 +89,106 @@ export async function runFfprobe(args: string[], options?: any): Promise<{ stdou
   }
 }
 
+// Dynamic, self-healing yt-dlp binary resolution with automatic download fallback
+const YTDLP_LOCAL_PATH = path.join(process.cwd(), 'bin', 'yt-dlp');
+
+export async function getYtDlpPath(): Promise<string> {
+  // 1. Explicit env override
+  if (process.env.YTDLP_PATH && fs.existsSync(process.env.YTDLP_PATH)) {
+    try {
+      fs.chmodSync(process.env.YTDLP_PATH, 0o755);
+    } catch {}
+    return process.env.YTDLP_PATH;
+  }
+
+  // 2. Project-bundled binary in ./bin/yt-dlp
+  if (fs.existsSync(YTDLP_LOCAL_PATH)) {
+    try {
+      fs.chmodSync(YTDLP_LOCAL_PATH, 0o755);
+      return YTDLP_LOCAL_PATH;
+    } catch {}
+  }
+
+  // 3. Known system candidate paths
+  const candidates = [
+    '/usr/local/bin/yt-dlp',
+    '/usr/bin/yt-dlp',
+    path.join(os.homedir(), '.local', 'bin', 'yt-dlp'),
+    path.join(os.tmpdir(), 'yt-dlp'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        fs.chmodSync(c, 0o755);
+      } catch {}
+      return c;
+    }
+  }
+
+  // 4. System PATH via which
+  try {
+    const { stdout } = await pExecFile('which', ['yt-dlp'], { encoding: 'utf8' });
+    const trimmed = (stdout || '').trim();
+    if (trimmed && fs.existsSync(trimmed)) {
+      return trimmed;
+    }
+  } catch {}
+
+  // 5. Automatic on-the-fly download (self-healing for Cloud Run container environments)
+  console.log('[server] yt-dlp binary not found. Initiating on-demand automatic download...');
+  const targetDir = path.dirname(YTDLP_LOCAL_PATH);
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  const downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+  try {
+    try {
+      await pExecFile('curl', ['-L', downloadUrl, '-o', YTDLP_LOCAL_PATH], { timeout: 60000 });
+    } catch {
+      await pExecFile('wget', ['-q', downloadUrl, '-O', YTDLP_LOCAL_PATH], { timeout: 60000 });
+    }
+    fs.chmodSync(YTDLP_LOCAL_PATH, 0o755);
+    console.log('[server] yt-dlp binary successfully downloaded to', YTDLP_LOCAL_PATH);
+    return YTDLP_LOCAL_PATH;
+  } catch (dlErr) {
+    console.warn('[server] Local directory download failed, trying os.tmpdir():', dlErr);
+    const tmpDest = path.join(os.tmpdir(), 'yt-dlp');
+    try {
+      try {
+        await pExecFile('curl', ['-L', downloadUrl, '-o', tmpDest], { timeout: 60000 });
+      } catch {
+        await pExecFile('wget', ['-q', downloadUrl, '-O', tmpDest], { timeout: 60000 });
+      }
+      fs.chmodSync(tmpDest, 0o755);
+      console.log('[server] yt-dlp binary successfully downloaded to fallback', tmpDest);
+      return tmpDest;
+    } catch (tmpErr) {
+      console.error('[server] Fallback download failed:', tmpErr);
+    }
+  }
+
+  return 'yt-dlp';
+}
+
+export async function runYtDlp(args: string[], options?: any): Promise<{ stdout: string; stderr: string }> {
+  const binary = await getYtDlpPath();
+  try {
+    const res: any = await pExecFile(binary, args, { encoding: 'utf8', timeout: 240000, ...options });
+    return {
+      stdout: typeof res.stdout === 'string' ? res.stdout : String(res.stdout || ''),
+      stderr: typeof res.stderr === 'string' ? res.stderr : String(res.stderr || ''),
+    };
+  } catch (err: any) {
+    if (err && (err.code === 'ENOENT' || err.message?.includes('ENOENT'))) {
+      throw new Error(
+        `yt-dlp binary is not installed on this system for streaming site extraction. Please upload your video/audio file directly, or use a direct media file URL (ending in .mp4, .mp3, etc.).`
+      );
+    }
+    throw err;
+  }
+}
+
 const app = express();
 const DEFAULT_PORT = 4261;
 const PORT = parseInt(process.env.PORT || '4261', 10);
@@ -163,8 +263,25 @@ async function downloadUrlEphemeral(url: string, outputDir: string, extractAudio
   }
 
   // 2. Otherwise use yt-dlp for web streaming extraction
+  const ytDlpBinary = await getYtDlpPath();
+  const ffmpegBinary = getFfmpegPath();
   const outTemplate = path.join(outputDir, 'source.%(ext)s');
-  const args = ['--no-warnings', '--no-check-certificates', '-o', outTemplate];
+  const args = [
+    '--no-warnings',
+    '--no-check-certificates',
+    '--ffmpeg-location', ffmpegBinary,
+    '-o', outTemplate
+  ];
+
+  // Optional cookies support for authenticated/age-restricted extraction
+  const cookiesEnv = process.env.YTDLP_COOKIES_PATH || process.env.COOKIES_PATH;
+  if (cookiesEnv) {
+    if (cookiesEnv.startsWith('firefox:') || cookiesEnv.startsWith('chrome:') || cookiesEnv.startsWith('brave:') || cookiesEnv.startsWith('edge:')) {
+      args.push('--cookies-from-browser', cookiesEnv);
+    } else if (fs.existsSync(cookiesEnv)) {
+      args.push('--cookies', cookiesEnv);
+    }
+  }
 
   if (extractAudioOnly) {
     args.push('-x', '--audio-format', 'wav', '--audio-quality', '0');
@@ -174,16 +291,16 @@ async function downloadUrlEphemeral(url: string, outputDir: string, extractAudio
   args.push(url);
 
   try {
-    await pExecFile('yt-dlp', args, { timeout: 180000 });
+    await pExecFile(ytDlpBinary, args, { timeout: 240000 });
   } catch (err: unknown) {
     const errText = (err as Error)?.message || '';
     if ((err as any)?.code === 'ENOENT' || errText.includes('ENOENT')) {
       throw new Error(
-        'yt-dlp binary is not installed on this system for streaming site extraction. Please upload your video/audio file directly, or use a direct media file URL (ending in .mp4, .mp3, etc.).'
+        'yt-dlp binary could not be found or executed. Please upload your video/audio file directly, or use a direct media file URL (ending in .mp4, .mp3, etc.).'
       );
     }
     if (errText.includes('Sign in') || errText.includes('bot') || errText.includes('403') || errText.includes('HTTP Error 403')) {
-      throw new Error('Streaming source blocked automated extraction (bot check / 403). Please upload your video/audio file directly.');
+      throw new Error('Streaming source blocked automated extraction (bot check / 403). Please upload your video/audio file directly, or configure a browser cookies profile in Encrypted Secrets.');
     }
     throw new Error(`Failed to download stream (${errText.slice(0, 140)}...). Please upload the media file directly.`);
   }
@@ -988,6 +1105,32 @@ app.get('/api/health', async (req, res) => {
     ffmpegVersion = e?.message || 'FFmpeg unavailable';
   }
 
+  let ytDlpReady = false;
+  let ytDlpPath = '';
+  let ytDlpVersion = '';
+  try {
+    ytDlpPath = await getYtDlpPath();
+    const { stdout } = await runYtDlp(['--version']);
+    ytDlpReady = true;
+    ytDlpVersion = stdout.trim();
+  } catch (e: any) {
+    ytDlpVersion = e?.message || 'yt-dlp unavailable';
+  }
+
+  let pythonReady = false;
+  let pythonVersion = '';
+  try {
+    const { stdout } = await pExecFile('python3', ['--version']);
+    pythonReady = true;
+    pythonVersion = stdout.trim();
+  } catch {
+    try {
+      const { stdout } = await pExecFile('python', ['--version']);
+      pythonReady = true;
+      pythonVersion = stdout.trim();
+    } catch {}
+  }
+
   res.json({
     status: 'ok',
     ffmpeg: {
@@ -997,12 +1140,51 @@ app.get('/api/health', async (req, res) => {
     },
     ffprobe: {
       path: ffprobePath,
+      ready: fs.existsSync(ffprobePath) || ffprobePath === 'ffprobe',
+    },
+    ytDlp: {
+      ready: ytDlpReady,
+      path: ytDlpPath,
+      version: ytDlpVersion,
+    },
+    python: {
+      ready: pythonReady,
+      version: pythonVersion,
+    },
+    system: {
+      platform: process.platform,
+      arch: process.arch,
+      node: process.version,
     },
   });
 });
 
+// Explicit endpoint to trigger or refresh binary installation
+app.post('/api/install-binaries', async (req, res) => {
+  try {
+    const ytDlpPath = await getYtDlpPath();
+    const { stdout } = await runYtDlp(['--version']);
+    res.json({
+      success: true,
+      message: `yt-dlp binary is verified and ready (v${stdout.trim()})`,
+      path: ytDlpPath,
+      version: stdout.trim(),
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to install or verify yt-dlp binary',
+    });
+  }
+});
+
 // Vite middleware / static files
 async function start() {
+  // Pre-warm yt-dlp in the background so it is instantly available upon first request
+  getYtDlpPath()
+    .then((p) => console.log(`[server] yt-dlp binary confirmed ready at ${p}`))
+    .catch((err) => console.warn(`[server] yt-dlp startup warm-up notice:`, err.message));
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
