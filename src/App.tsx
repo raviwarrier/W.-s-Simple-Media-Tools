@@ -42,8 +42,8 @@ export default function App() {
 
 function AppContent() {
   const { showToast } = useToast();
-  // Navigation & Theme (Dark mode is default as explicitly requested)
-  const [currentModule, setCurrentModule] = useState<ModuleId>('video-transcriber');
+  // Navigation & Theme (Video Downloader is default module as requested)
+  const [currentModule, setCurrentModule] = useState<ModuleId>('video-downloader');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isTaskDrawerOpen, setIsTaskDrawerOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);

@@ -40,6 +40,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems: { id: ModuleId; label: string; icon: React.ReactNode; badge?: string }[] = [
     {
+      id: 'video-downloader',
+      label: 'Video Downloader',
+      icon: <Download className="w-4 h-4 shrink-0" />,
+    },
+    {
       id: 'video-transcriber',
       label: 'Video Transcriber',
       icon: <Video className="w-4 h-4 shrink-0" />,
@@ -58,11 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'audible-fetcher',
       label: 'Audible Fetcher',
       icon: <Headphones className="w-4 h-4 shrink-0" />,
-    },
-    {
-      id: 'video-downloader',
-      label: 'Video Downloader',
-      icon: <Download className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'secrets-settings',
