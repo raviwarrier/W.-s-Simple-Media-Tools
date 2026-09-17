@@ -3,6 +3,7 @@ export type ModuleId =
   | 'media-clipper'
   | 'audiobook-transcriber'
   | 'audible-fetcher'
+  | 'video-downloader'
   | 'audio-extractor'
   | 'secrets-settings'
   | 'cost-analytics'
@@ -201,4 +202,125 @@ export interface AudibleFetcherState {
   isSearching: boolean;
   hasSearched: boolean;
   errorMessage: string | null;
+}
+
+// Module 5: Video Downloader State & Types
+export type VideoDownloaderQuality =
+  | 'best'
+  | '2160p'
+  | '1440p'
+  | '1080p'
+  | '720p'
+  | '480p'
+  | '360p'
+  | 'audio-best'
+  | 'audio-mp3'
+  | 'audio-m4a'
+  | 'audio-wav'
+  | 'audio-flac';
+
+export type VideoDownloaderCookieMode = 'browser' | 'file';
+
+export type SupportedBrowser =
+  | 'chrome'
+  | 'firefox'
+  | 'edge'
+  | 'brave'
+  | 'opera'
+  | 'vivaldi'
+  | 'chromium'
+  | 'safari';
+
+export interface VideoMetadataInfo {
+  id: string;
+  title: string;
+  uploader?: string;
+  channel?: string;
+  duration?: number;
+  durationString?: string;
+  thumbnail?: string;
+  viewCount?: number;
+  uploadDate?: string;
+  description?: string;
+  webpageUrl: string;
+  availableResolutions: string[];
+  formatsSummary?: {
+    videoOptions: Array<{ formatId: string; resolution: string; ext: string; note: string; filesizeApprox?: string }>;
+    audioOptions: Array<{ formatId: string; ext: string; note: string; filesizeApprox?: string }>;
+  };
+  extractor?: string;
+  estimatedSize?: string;
+  isLive?: boolean;
+}
+
+export interface DownloadQueueItem {
+  id: string;
+  url: string;
+  title: string;
+  thumbnail?: string;
+  quality: VideoDownloaderQuality;
+  format: 'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a' | 'wav' | 'flac';
+  status: 'queued' | 'inspecting' | 'downloading' | 'merging' | 'completed' | 'error' | 'cancelled';
+  progress: number; // 0 - 100
+  downloadSpeed?: string; // e.g. "5.4 MB/s"
+  eta?: string; // e.g. "00:12"
+  downloadedSizeStr?: string;
+  totalSizeStr?: string;
+  currentStage: string;
+  filename?: string;
+  downloadUrl?: string;
+  localFilePath?: string;
+  fileSizeBytes?: number;
+  errorMessage?: string;
+  logs: string[];
+  commandPreview?: string;
+  startedAt: number;
+  completedAt?: number;
+}
+
+export interface VideoDownloaderState {
+  // Mode selection: Default/simple vs Advanced
+  uiMode: 'simple' | 'advanced';
+
+  urlsInput: string;
+  preset: 'best' | '1080p' | '720p' | 'audio-mp3' | 'custom';
+  selectedQuality: VideoDownloaderQuality;
+  outputFormat: 'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a' | 'wav' | 'flac';
+  outputDirectory: string;
+  namingScheme: string;
+  embedSubtitles: boolean;
+  embedThumbnail: boolean;
+  embedMetadata: boolean;
+
+  // Authentication & Cookies Accordion (Advanced mode only; cookies disabled by default)
+  authExpanded: boolean;
+  enableCookieAuth: boolean;
+  cookieMode: VideoDownloaderCookieMode;
+  selectedBrowser: SupportedBrowser;
+  browserProfile: string;
+  firefoxContainer: string;
+  cookieFilePath: string;
+  cookieFileContent: string;
+  cookieFileName: string | null;
+
+  // Inspected Metadata Cache
+  inspectedMetadata: VideoMetadataInfo | null;
+  isInspecting: boolean;
+  inspectError: string | null;
+
+  // Queue & Progress
+  queue: DownloadQueueItem[];
+  activeDownloadId: string | null;
+  showLogs: boolean;
+  rawTerminalLogs: string[];
+
+  // Automated browser download & ephemeral server file lifecycle
+  autoDownloadToPC: boolean;
+  autoCleanServerOnClose: boolean;
+
+  // Engine status
+  ytdlpVersion: string;
+  ffmpegVersion: string;
+  isCheckingUpdate: boolean;
+  updateStatus: string | null;
 }

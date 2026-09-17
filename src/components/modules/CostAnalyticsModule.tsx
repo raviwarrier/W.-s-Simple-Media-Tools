@@ -25,6 +25,7 @@ const MODULE_TITLES: Record<ModuleId, string> = {
   'media-clipper': 'Audio/Video Clipper',
   'audiobook-transcriber': 'Audiobook Transcriber',
   'audible-fetcher': 'Audible Fetcher',
+  'video-downloader': 'Video Downloader',
   'audio-extractor': 'Audio Extractor',
   'secrets-settings': 'Encrypted Secrets',
   'cost-analytics': 'Costs & Budget',

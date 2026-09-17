@@ -33,6 +33,10 @@ const MODULE_NAMES: Partial<Record<ModuleId, { title: string; desc: string }>> =
     title: 'Audible Book Details Fetcher',
     desc: 'Audible Catalog API & Audnex metadata lookup (adapted from Audiobookshelf GPL-3.0)',
   },
+  'video-downloader': {
+    title: 'Video Downloader',
+    desc: 'High-performance yt-dlp downloader with browser auth & multi-format options',
+  },
   'secrets-settings': {
     title: 'Encrypted Secrets Vault',
     desc: 'AES-GCM key management and unified vs per-module token policy',

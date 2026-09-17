@@ -8,6 +8,7 @@ import {
   MediaClipperState,
   AudiobookTranscriberState,
   AudibleFetcherState,
+  VideoDownloaderState,
 } from './types';
 import {
   getInitialSecretStore,
@@ -24,6 +25,7 @@ import { VideoTranscriberModule } from './components/modules/VideoTranscriberMod
 import { MediaClipperModule } from './components/modules/MediaClipperModule';
 import { AudiobookTranscriberModule } from './components/modules/AudiobookTranscriberModule';
 import { AudibleFetcherModule } from './components/modules/AudibleFetcherModule';
+import { VideoDownloaderModule } from './components/modules/VideoDownloaderModule';
 import { SecretsSettingsModule } from './components/modules/SecretsSettingsModule';
 import { CostAnalyticsModule } from './components/modules/CostAnalyticsModule';
 import { CodeEnvironmentModule } from './components/modules/CodeEnvironmentModule';
@@ -182,6 +184,41 @@ function AppContent() {
     isSearching: false,
     hasSearched: false,
     errorMessage: null,
+  });
+
+  const [videoDownloaderState, setVideoDownloaderState] = useState<VideoDownloaderState>({
+    uiMode: 'simple',
+    urlsInput: '',
+    preset: 'best',
+    selectedQuality: 'best',
+    outputFormat: 'mp4',
+    outputDirectory: 'downloads',
+    namingScheme: '%(title)s.%(ext)s',
+    embedSubtitles: false,
+    embedThumbnail: false,
+    embedMetadata: true,
+    authExpanded: false,
+    enableCookieAuth: false,
+    cookieMode: 'browser',
+    selectedBrowser: 'chrome',
+    browserProfile: '',
+    firefoxContainer: '',
+    cookieFilePath: '',
+    cookieFileContent: '',
+    cookieFileName: null,
+    inspectedMetadata: null,
+    isInspecting: false,
+    inspectError: null,
+    queue: [],
+    activeDownloadId: null,
+    showLogs: false,
+    rawTerminalLogs: [],
+    autoDownloadToPC: true,
+    autoCleanServerOnClose: true,
+    ytdlpVersion: '2026.08.19',
+    ffmpegVersion: 'Available',
+    isCheckingUpdate: false,
+    updateStatus: null,
   });
 
   // Calculate ephemeral in-memory buffer usage for zero-retention audit
@@ -513,6 +550,19 @@ function AppContent() {
             />
           )}
 
+          {currentModule === 'video-downloader' && (
+            <VideoDownloaderModule
+              state={videoDownloaderState}
+              onChange={setVideoDownloaderState}
+              secretStore={secretStore}
+              costTracker={costTracker}
+              onRecordCost={(mod, op, dur, inT, outT, det) =>
+                handleRecordCost(mod, op, dur, inT, outT, det)
+              }
+              isDarkMode={isDarkMode}
+            />
+          )}
+
           {currentModule === 'secrets-settings' && (
             <SecretsSettingsModule
               secretStore={secretStore}
@@ -542,6 +592,7 @@ function AppContent() {
                   'media-clipper': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'audiobook-transcriber': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'audible-fetcher': { costUSD: 0, runs: 0, totalSeconds: 0 },
+                  'video-downloader': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'audio-extractor': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'secrets-settings': { costUSD: 0, runs: 0, totalSeconds: 0 },
                   'cost-analytics': { costUSD: 0, runs: 0, totalSeconds: 0 },

@@ -34,7 +34,6 @@ const ToastCard: React.FC<ToastCardProps> = ({ toast, onDismiss, isDarkMode }) =
       setRemainingTime((prev) => {
         if (prev <= stepMs) {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          onDismiss(toast.id);
           return 0;
         }
         return prev - stepMs;
@@ -44,7 +43,13 @@ const ToastCard: React.FC<ToastCardProps> = ({ toast, onDismiss, isDarkMode }) =
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isHovered, toast.id, onDismiss]);
+  }, [isHovered]);
+
+  useEffect(() => {
+    if (remainingTime === 0) {
+      onDismiss(toast.id);
+    }
+  }, [remainingTime, toast.id, onDismiss]);
 
   const handleCopy = async () => {
     try {

@@ -7,6 +7,7 @@ import {
   DollarSign,
   Key,
   Headphones,
+  Download,
   ChevronLeft,
   ChevronRight,
   TrendingUp,
@@ -57,6 +58,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'audible-fetcher',
       label: 'Audible Fetcher',
       icon: <Headphones className="w-4 h-4 shrink-0" />,
+    },
+    {
+      id: 'video-downloader',
+      label: 'Video Downloader',
+      icon: <Download className="w-4 h-4 shrink-0" />,
     },
     {
       id: 'secrets-settings',
@@ -113,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </p>
         )}
 
-        {navItems.slice(0, 4).map((item) => {
+        {navItems.slice(0, 5).map((item) => {
           const isActive = currentModule === item.id;
           return (
             <button
@@ -150,7 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </p>
           )}
 
-          {navItems.slice(4).map((item) => {
+          {navItems.slice(5).map((item) => {
             const isActive = currentModule === item.id;
             return (
               <button

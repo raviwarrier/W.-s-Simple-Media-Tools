@@ -11,6 +11,19 @@ import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 import { createServer as createViteServer } from 'vite';
 import { fetchBookDetails } from './server/audibleFetcher';
+import {
+  inspectVideoUrl,
+  startDownloadJob,
+  cancelDownloadJob,
+  getJobs,
+  getJob,
+  subscribeSSE,
+  updateYtDlp,
+  getSystemEnginesVersion,
+  listCompletedDownloads,
+  deleteCompletedFile,
+  purgeAllDownloads,
+} from './server/videoDownloader';
 
 dotenv.config();
 
@@ -1092,6 +1105,204 @@ app.get('/api/audible-fetcher/search', async (req, res) => {
       error: (err as Error)?.message || 'Audible search failed',
       books: [],
     });
+  }
+});
+
+// -------------------------------------------------------------
+// 6. Video Downloader API (yt-dlp Core Engine & Real-Time Monitor)
+// -------------------------------------------------------------
+
+// Inspect video metadata (yt-dlp -J)
+app.post('/api/downloader/inspect', async (req, res) => {
+  try {
+    const { url, auth } = req.body;
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      res.status(400).json({ error: 'Please provide a valid video URL.' });
+      return;
+    }
+
+    const info = await inspectVideoUrl(url.trim(), auth || { cookieMode: 'browser', selectedBrowser: 'chrome' });
+    res.json({ success: true, info });
+  } catch (err: any) {
+    console.error('Downloader inspect error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Failed to fetch video details.' });
+  }
+});
+
+// Start background download job
+app.post('/api/downloader/start', async (req, res) => {
+  try {
+    const {
+      url,
+      jobId,
+      title,
+      thumbnail,
+      quality = 'best',
+      format = 'mp4',
+      outputDirectory,
+      namingScheme,
+      embedSubtitles = false,
+      embedThumbnail = false,
+      embedMetadata = true,
+      auth,
+    } = req.body;
+
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      res.status(400).json({ error: 'Video URL is required.' });
+      return;
+    }
+
+    const id = jobId || `dl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const job = await startDownloadJob({
+      jobId: id,
+      url: url.trim(),
+      title,
+      thumbnail,
+      quality,
+      format,
+      outputDirectory,
+      namingScheme,
+      embedSubtitles,
+      embedThumbnail,
+      embedMetadata,
+      auth: auth || { cookieMode: 'browser', selectedBrowser: 'chrome' },
+    });
+
+    res.json({ success: true, job });
+  } catch (err: any) {
+    console.error('Downloader start error:', err);
+    res.status(500).json({ success: false, error: err?.message || 'Failed to initiate download job.' });
+  }
+});
+
+// Cancel active download
+app.post('/api/downloader/cancel/:id', (req, res) => {
+  const { id } = req.params;
+  const success = cancelDownloadJob(id);
+  res.json({ success });
+});
+
+// Get current and past jobs
+app.get('/api/downloader/jobs', (req, res) => {
+  res.json({ success: true, jobs: getJobs() });
+});
+
+// Get single job
+app.get('/api/downloader/jobs/:id', (req, res) => {
+  const job = getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: 'Job not found' });
+    return;
+  }
+  res.json({ success: true, job });
+});
+
+// Server-Sent Events (SSE) for real-time progress & terminal log streaming
+app.get('/api/downloader/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  // Initial jobs snapshot
+  res.write(`event: initial-jobs\ndata: ${JSON.stringify(getJobs())}\n\n`);
+
+  const unsubscribe = subscribeSSE((event, data) => {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {}
+  });
+
+  req.on('close', () => {
+    unsubscribe();
+  });
+});
+
+// Upload cookies.txt file
+app.post('/api/downloader/cookies/upload', upload.single('cookieFile'), (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No cookie file was provided.' });
+    return;
+  }
+  res.json({
+    success: true,
+    filePath: req.file.path,
+    originalName: req.file.originalname,
+    size: req.file.size,
+  });
+});
+
+// List completed download files in the downloads directory
+app.get('/api/downloader/files', (req, res) => {
+  const outDir = req.query.dir as string | undefined;
+  const files = listCompletedDownloads(outDir);
+  res.json({ success: true, files });
+});
+
+// Download finished file to browser (optionally auto-cleaning file on server after delivery)
+app.get('/api/downloader/download/:filename', (req, res) => {
+  const filename = path.basename(req.params.filename);
+  const downloadDir = path.resolve(process.cwd(), 'downloads');
+  const targetPath = path.join(downloadDir, filename);
+
+  if (!fs.existsSync(targetPath)) {
+    res.status(404).json({ error: `File not found: ${filename}` });
+    return;
+  }
+
+  const shouldDeleteAfter = req.query.autodelete === 'true';
+
+  res.download(targetPath, filename, (err) => {
+    if (!err && shouldDeleteAfter) {
+      setTimeout(() => {
+        try {
+          if (fs.existsSync(targetPath)) {
+            fs.unlinkSync(targetPath);
+            console.log(`[downloader] Cleaned up delivered file: ${filename}`);
+          }
+        } catch (cleanupErr) {
+          console.warn('[downloader] Failed to clean up file after download:', cleanupErr);
+        }
+      }, 5000); // 5s buffer to ensure complete client socket delivery
+    }
+  });
+});
+
+// Explicit delete endpoint for a single downloaded file
+app.delete('/api/downloader/files/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const deleted = deleteCompletedFile(filename);
+  res.json({ success: deleted });
+});
+
+// Purge all downloaded files (called on page unload / tab close beacon or user request)
+app.post('/api/downloader/purge', (req, res) => {
+  const purgedCount = purgeAllDownloads();
+  console.log(`[downloader] Purged ${purgedCount} files on request / tab close.`);
+  res.json({ success: true, count: purgedCount });
+});
+
+
+// Check status & versions of yt-dlp, FFmpeg, ffprobe
+app.get('/api/downloader/status', async (req, res) => {
+  try {
+    const status = await getSystemEnginesVersion();
+    res.json({ success: true, ...status });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Status check failed' });
+  }
+});
+
+// Check for yt-dlp update (yt-dlp -U)
+app.post('/api/downloader/update', async (req, res) => {
+  try {
+    const result = await updateYtDlp();
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || 'Failed to update yt-dlp' });
   }
 });
 
